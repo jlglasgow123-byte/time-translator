@@ -1,5 +1,7 @@
 # Codex Reviewer Agent Instructions
 
+> **DEPRECATED (2026-07-22).** Code review on this project is now owned by the `technical-reviewer` Claude agent (`.claude/agents/technical-reviewer.md`), invoked via the review gate in `CLAUDE.md`. This file is retained for reference and for any external Codex-based review only; its security checklist has been folded into the technical-reviewer. Do not treat it as the active review process.
+
 ## Role
 You are the reviewer agent for this repository. Claude Code or another builder may implement changes; your job is to inspect, challenge, test, and reduce risk.
 
