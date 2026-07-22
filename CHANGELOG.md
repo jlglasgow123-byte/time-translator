@@ -10,6 +10,7 @@ A running record of what has been built, fixed, and shipped. Most recent first.
 - **Fixed high-severity dependency vulnerability** — Pinned the `sharp` image library (a transitive dependency of Next.js) to a patched version, closing out several inherited `libvips` CVEs flagged by GitHub Dependabot.
 - **Blocked a broken automated dependency update** — Closed a Dependabot PR that bumped TypeScript to a major version incompatible with the app's build (it broke `next.config.ts` loading), and added a rule so future TypeScript major-version bumps are no longer auto-proposed.
 - **Moved the admin notification address out of source** — The internal email that receives contact-form messages, error alerts, the weekly security report, and promo/referral notifications is now read from an `ADMIN_NOTIFY_EMAIL` environment variable (falling back to `contact@timetranslator.com.au`) instead of being hardcoded, so no personal address is baked into the now-public codebase.
+- **Rebuilt the repository from a clean history** — Recreated the public repo from a single fresh commit so that internal planning notes and a previously-hardcoded email are gone from all commit history and from stale pull-request refs (which a normal history rewrite can't remove). Switched code scanning to GitHub's managed CodeQL "default setup" and removed the now-redundant custom CodeQL workflow that was failing.
 
 ---
 
