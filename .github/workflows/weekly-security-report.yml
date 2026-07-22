@@ -1,0 +1,66 @@
+name: Weekly Security Report
+
+on:
+  schedule:
+    - cron: "0 21 * * 0" # Sunday 21:00 UTC — an hour before the CodeQL weekly scan
+  workflow_dispatch: {}
+
+jobs:
+  report:
+    name: Run checks and email report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run custom security check
+        id: security_check
+        continue-on-error: true
+        run: npm run security:check
+
+      - name: Run npm audit
+        id: npm_audit
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Report results to app
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SECURITY_CHECK_OUTCOME: ${{ steps.security_check.outcome }}
+          NPM_AUDIT_OUTCOME: ${{ steps.npm_audit.outcome }}
+        run: |
+          curl -sf -X POST https://www.timetranslator.com.au/api/admin/security-report \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "$(node -e '
+              const outcome = (o) => o === "success";
+              const body = {
+                ciChecks: [
+                  {
+                    name: "npm run security:check",
+                    ok: outcome(process.env.SECURITY_CHECK_OUTCOME),
+                    detail: outcome(process.env.SECURITY_CHECK_OUTCOME) ? "Passed" : "Failed — see GitHub Actions run logs for details",
+                  },
+                  {
+                    name: "npm audit (high+ severity, production deps)",
+                    ok: outcome(process.env.NPM_AUDIT_OUTCOME),
+                    detail: outcome(process.env.NPM_AUDIT_OUTCOME) ? "No high/critical vulnerabilities found" : "Vulnerabilities found — see GitHub Actions run logs for details",
+                  },
+                ],
+              };
+              process.stdout.write(JSON.stringify(body));
+            ')"
+
+      - name: Fail workflow if any check failed
+        if: steps.security_check.outcome != 'success' || steps.npm_audit.outcome != 'success'
+        run: |
+          echo "One or more security checks failed — see steps above. Report email was still sent."
+          exit 1

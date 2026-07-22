@@ -1,0 +1,13 @@
+{
+  "regions": ["syd1"],
+  "crons": [
+    {
+      "path": "/api/admin/atlassian-report",
+      "schedule": "0 4 * * 1"
+    },
+    {
+      "path": "/api/admin/error-alerts",
+      "schedule": "0 21 * * *"
+    }
+  ]
+}
