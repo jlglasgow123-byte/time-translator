@@ -4,6 +4,11 @@ A running record of what has been built, fixed, and shipped. Most recent first.
 
 ---
 
+## 2026-07-24
+
+- **Added a 5-week launch plan** — Wrote `LAUNCH_PLAN.md` targeting a paid launch on 30 August 2026, with weekly technical + marketing milestones. Grounded in the real backlog: most remaining work is verifying already-built features end-to-end (Stripe, emails, import, mobile, Xero, Google Calendar), not new build. Records the Google sensitive-scope approval that un-gates Google Calendar OAuth for all users.
+- **Never create artifacts for this project** — Added a top-priority rule to `CLAUDE.md`: shareable/rendered documents must be written to repo files, never Claude artifacts, because this repo is linked to a work account.
+
 ## 2026-07-22
 
 - **Adopted a governed three-agent workflow** — Added a Product Manager, Software Developer, and Technical Reviewer agent, plus a `Project_Model.md` (process, scope, standards, decisions) alongside the reconstructed `PRD.md`, so changes now follow a consistent plan → build → review → push loop. The Technical Reviewer is now the single code reviewer (with a security/data-isolation checklist built in), replacing the older Codex reviewer, which is marked deprecated. `CLAUDE.md` now asks whether to run a review before every push.

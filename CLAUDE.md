@@ -1,5 +1,9 @@
 # Time Translator — Claude Code Guidelines
 
+## NEVER create artifacts for this project
+
+**Do not create Claude artifacts for anything in this project — ever.** This repo is linked to a work Claude account, and artifacts created here land in the wrong place. When a shareable or rendered document would otherwise be an artifact (a plan, a report, a page, a mockup), write it to a **file in the repo** instead. No exceptions.
+
 ## Source of truth
 
 `PRD.md` (product intent) and `Project_Model.md` (process, scope, standards, decisions) are the shared source of truth. Read them before non-trivial work. Every accepted decision must be recorded in `Project_Model.md` — an accepted decision that isn't recorded doesn't count as done.
