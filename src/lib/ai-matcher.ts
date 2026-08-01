@@ -7,6 +7,20 @@ const JIRA_KEY_RE = /\b([A-Z]{2,6}-\d+)\b/i
 
 const MODEL = 'claude-haiku-4-5-20251001'
 
+// Module-scope so a single client (and its underlying HTTPS agent) is reused across
+// invocations on a warm instance, letting keep-alive avoid a fresh TLS handshake per
+// import. Safe to construct at import time: the SDK constructor resolves ANTHROPIC_API_KEY
+// via readEnv(), which returns undefined rather than throwing when the var is missing, and
+// only fails at request time if auth cannot be resolved. It holds no per-request or
+// per-user state — this call site passes no options.
+const anthropic = new Anthropic()
+
+// Counts AI-using matchEvents invocations served by this module instance. 1 means this
+// invocation was the first on a cold instance and still pays the TLS handshake inside
+// apiCallMs; >1 means the client (and any keep-alive connection) was reused. This is what
+// makes connection reuse measurable — compare apiCallMaxMs at clientUseCount 1 vs >1.
+let clientUseCount = 0
+
 interface AiMatch {
   uid: string
   jiraKey: string
@@ -27,12 +41,16 @@ interface BatchPhaseTiming {
   apiCallMs: number
   parseMs: number
   batchTotalMs: number
+  // Token usage from message.usage. null (not 0) when the field is absent or malformed —
+  // a zero would be indistinguishable from a real measurement of an empty response.
+  inputTokens: number | null
+  outputTokens: number | null
 }
 
 function reportPhaseTimings(summary: {
   totalMs: number
   deterministicMs: number
-  clientInitMs: number
+  clientUseCount: number
   aiWallClockMs: number
   eventCount: number
   nonSkippedCount: number
@@ -51,17 +69,38 @@ function reportPhaseTimings(summary: {
     const promptBuildMsList = nums(b => b.promptBuildMs)
     const parseMsList = nums(b => b.parseMs)
 
+    // Token counts: drop nulls so a missing reading never silently reads as 0. If every
+    // batch is missing usage, the sums/maxes below are reported as null, not 0.
+    const known = (pick: (b: BatchPhaseTiming) => number | null) =>
+      batches.map(pick).filter((n): n is number => n !== null)
+    const inputTokensList = known(b => b.inputTokens)
+    const outputTokensList = known(b => b.outputTokens)
+    const orNull = (xs: number[], f: (xs: number[]) => number) => (xs.length ? f(xs) : null)
+    const usageMissingBatches = batches.filter(b => b.inputTokens === null || b.outputTokens === null).length
+
+    // ms per output token across the whole AI phase — the number that tells us whether
+    // generation time explains the latency floor. Uses the slowest batch's wall clock
+    // against that same batch's output tokens would be ideal, but batches overlap, so
+    // this uses the max/max pair as the closest single-batch approximation.
+    const outputTokensMax = orNull(outputTokensList, max)
+    const apiCallMaxMs = max(apiCallMsList)
+    const msPerOutputTokenMax =
+      outputTokensMax && outputTokensMax > 0
+        ? Math.round((apiCallMaxMs / outputTokensMax) * 100) / 100
+        : null
+
     const details = {
       // Wall-clock: these are real elapsed time within matchEvents and are additive.
       totalMs: summary.totalMs,
       deterministicMs: summary.deterministicMs,
-      clientInitMs: summary.clientInitMs,
       aiWallClockMs: summary.aiWallClockMs,
+      // 1 = first AI call on this instance (pays TLS handshake); >1 = client reused.
+      clientUseCount: summary.clientUseCount,
       // Aggregate: batches run concurrently via Promise.all, so per-batch durations
       // OVERLAP in wall-clock time. `*MaxMs` approximates the wall-clock contribution
       // of the slowest batch; `*SumMs` is total work across batches and will exceed
       // aiWallClockMs whenever batchCount > 1. Do not add Sum values to totalMs.
-      apiCallMaxMs: max(apiCallMsList),
+      apiCallMaxMs,
       apiCallSumMs: sum(apiCallMsList),
       promptBuildMaxMs: max(promptBuildMsList),
       promptBuildSumMs: sum(promptBuildMsList),
@@ -75,9 +114,27 @@ function reportPhaseTimings(summary: {
       batchCount: summary.batchCount,
       promptCharsMax: max(nums(b => b.promptChars)),
       promptCharsSum: sum(nums(b => b.promptChars)),
+      // Token usage. Same max/sum distinction as the timings: Sum is total work across
+      // all batches; Max is the slowest/largest single batch, which is the one that maps
+      // onto apiCallMaxMs. null means no batch reported usage — never silently 0.
+      inputTokensMax: orNull(inputTokensList, max),
+      inputTokensSum: orNull(inputTokensList, sum),
+      outputTokensMax,
+      outputTokensSum: orNull(outputTokensList, sum),
+      msPerOutputTokenMax,
+      usageMissingBatches,
       // Per-batch detail. Stringified because sanitizeDetails() in observability.ts
       // collapses nested objects/arrays to '[object]' and truncates strings at 500 chars.
-      perBatch: JSON.stringify(batches).slice(0, 500),
+      // Keys are abbreviated so all batches fit inside that 500-char budget: adding the
+      // token fields to the verbose form pushed the 4-batch (146-event) case past it and
+      // silently lost the last batch. i=batchIndex, n=batchSize, pc=promptChars,
+      // pb=promptBuildMs, api=apiCallMs, p=parseMs, t=batchTotalMs, it/ot=input/output tokens.
+      perBatch: JSON.stringify(
+        batches.map(b => ({
+          i: b.batchIndex, n: b.batchSize, pc: b.promptChars, pb: b.promptBuildMs,
+          api: b.apiCallMs, p: b.parseMs, t: b.batchTotalMs, it: b.inputTokens, ot: b.outputTokens,
+        }))
+      ).slice(0, 500),
     }
 
     console.log('[ai-matcher] phase timings', details)
@@ -167,9 +224,9 @@ export async function matchEvents(
 ): Promise<WorkEntryProcessingResult> {
   const tStart = Date.now()
   const batchTimings: BatchPhaseTiming[] = []
-  let clientInitMs = 0
   let aiWallClockMs = 0
 
+  let clientUseSeq = 0
   const nonSkipped = events.filter(e => !e.autoSkipped)
   const { matched: deterministicMatches, unmatched } = deterministic(nonSkipped, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
   const deterministicMs = Date.now() - tStart
@@ -180,12 +237,8 @@ export async function matchEvents(
   let aiUnavailableReason: 'credits_exhausted' | 'auth_failed' | undefined
 
   if (unmatched.length > 0 && tickets.length > 0) {
-    const tClientInit = Date.now()
-    const client = new Anthropic()
-    clientInitMs = Date.now() - tClientInit
-    // NOTE: this will almost certainly read ~0ms. The SDK constructor does not open a
-    // connection — TLS/connection setup happens lazily on the first request, so that
-    // cost lands inside apiCallMs (specifically in the first/slowest batch) rather than here.
+    const client = anthropic
+    clientUseSeq = ++clientUseCount
 
     const BATCH = 50
     const batches: CalendarEvent[][] = []
@@ -202,6 +255,8 @@ export async function matchEvents(
         const promptChars = prompt.length
         let apiCallMs = 0
         let parseMs = 0
+        let inputTokens: number | null = null
+        let outputTokens: number | null = null
         const recordBatchTiming = () => {
           batchTimings.push({
             batchIndex,
@@ -211,6 +266,8 @@ export async function matchEvents(
             apiCallMs,
             parseMs,
             batchTotalMs: Date.now() - tBatchStart,
+            inputTokens,
+            outputTokens,
           })
         }
 
@@ -252,6 +309,18 @@ export async function matchEvents(
         }
 
         apiCallMs = Date.now() - tApiCall
+
+        // Instrumentation only — must never throw into matching. Anything that isn't a
+        // finite number stays null so "missing" is distinguishable from a real zero.
+        try {
+          const usage = message.usage
+          const asCount = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+          inputTokens = asCount(usage?.input_tokens)
+          outputTokens = asCount(usage?.output_tokens)
+        } catch {
+          inputTokens = null
+          outputTokens = null
+        }
 
         const stopReason = message.stop_reason
         const raw = message.content[0]?.type === 'text' ? message.content[0].text : ''
@@ -413,7 +482,7 @@ export async function matchEvents(
   reportPhaseTimings({
     totalMs: Date.now() - tStart,
     deterministicMs,
-    clientInitMs,
+    clientUseCount: clientUseSeq,
     aiWallClockMs,
     eventCount: events.length,
     nonSkippedCount: nonSkipped.length,
