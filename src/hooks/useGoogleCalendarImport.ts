@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveSession, loadFormConfig } from '@/lib/storage'
 import { toUserMessage } from '@/lib/errors'
+// TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
+import { devImportTiming } from '@/lib/dev-import-timing'
 import type { JiraConfig, WorkEntry, JiraMatchesByWorkEntryId, AiUnavailableReason } from '@/types'
 
 function localDateString(d: Date): string {
@@ -58,6 +60,7 @@ export function useGoogleCalendarImport() {
   }
 
   async function handleImport() {
+    devImportTiming.start('gcal-sync') // TEMP TIMING DIAGNOSTIC
     if (dateRangeTooLong) {
       setSyncError('Date range cannot exceed 90 days. Please adjust your From date.')
       return
@@ -67,6 +70,7 @@ export function useGoogleCalendarImport() {
     try {
       const saved = loadFormConfig()
 
+      devImportTiming.mark('requestSent') // TEMP TIMING DIAGNOSTIC
       const res = await fetch('/api/google-calendar/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,7 +85,10 @@ export function useGoogleCalendarImport() {
           includedIssueTypes: saved?.includedIssueTypes ?? [],
         }),
       })
+      devImportTiming.mark('responseHeaders') // TEMP TIMING DIAGNOSTIC
       const data = await res.json()
+      devImportTiming.mark('bodyRead') // TEMP TIMING DIAGNOSTIC
+      devImportTiming.setEventCount(Array.isArray(data.workEntries) ? data.workEntries.length : 0) // TEMP
       if (!res.ok) throw new Error(toUserMessage(data.error, 'Could not sync your Google Calendar. Please try again.'))
 
       const config: JiraConfig = {
@@ -104,6 +111,7 @@ export function useGoogleCalendarImport() {
         Boolean(data.aiUnavailable),
         data.aiUnavailableReason as AiUnavailableReason | undefined
       )
+      devImportTiming.mark('sessionSaved') // TEMP TIMING DIAGNOSTIC
       router.push('/review')
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : 'Sync failed')

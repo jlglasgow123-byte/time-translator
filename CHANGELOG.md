@@ -4,6 +4,12 @@ A running record of what has been built, fixed, and shipped. Most recent first.
 
 ---
 
+## 2026-08-01
+
+- **Temporary import-timing diagnostic (deliberately shipped to production)** — Added throwaway client-side instrumentation that measures the real wait between clicking import and seeing the review table, and prints a console report splitting that time into the server request versus everything else (network, session save, navigation, page render). The existing timing only covered the server request, so the user-perceived half of the wait was invisible — and that half is what matters for drop-off. It ships to production only because Google Calendar sync can't be exercised locally (localhost isn't a registered OAuth redirect URI). **Off by default and inert for everyone:** it requires both `NEXT_PUBLIC_TEMP_IMPORT_TIMING=1` on the deployment and a per-browser opt-in via `?devtiming=1`. Logs timing numbers and an entry count only — no titles, keys, or personal data — and writes nothing to the database. **To be deleted once the split is known.**
+
+---
+
 ## 2026-07-24
 
 - **Added a 5-week launch plan** — Wrote `LAUNCH_PLAN.md` targeting a paid launch on 30 August 2026, with weekly technical + marketing milestones. Grounded in the real backlog: most remaining work is verifying already-built features end-to-end (Stripe, emails, import, mobile, Xero, Google Calendar), not new build. Records the Google sensitive-scope approval that un-gates Google Calendar OAuth for all users.

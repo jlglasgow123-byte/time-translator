@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { CatchAllMapping, WorkEntry, CsvOverride, CsvOverridesByWorkEntryId } from '@/types'
@@ -14,6 +14,8 @@ import { CsvReviewTable } from '@/components/export/CsvReviewTable'
 import { CatchAllMappingsEditor, ExistingMappingRules } from '@/components/upload/CatchAllMappingsEditor'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+// TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
+import { devImportTiming } from '@/lib/dev-import-timing'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -50,6 +52,9 @@ export function ExportReviewView({ eyebrow, title, description }: Props) {
   const [mappingModalOpen, setMappingModalOpen] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [suggestingContacts, setSuggestingContacts] = useState(false)
+  // TEMP TIMING DIAGNOSTIC — fire-once guards for the timing marks
+  const timingMountedRef = useRef(false)
+  const timingPaintedRef = useRef(false)
 
   useEffect(() => {
     const supabase = createClient()
@@ -60,6 +65,12 @@ export function ExportReviewView({ eyebrow, title, description }: Props) {
   }, [router])
 
   useEffect(() => {
+    // TEMP TIMING DIAGNOSTIC — ref-guarded against dev StrictMode's double-invoke,
+    // which would otherwise overwrite this timestamp with a later remount one.
+    if (!timingMountedRef.current) {
+      timingMountedRef.current = true
+      devImportTiming.markReviewMounted()
+    }
     const formConfig = loadFormConfig()
     setCatchAllMappings(formConfig?.catchAllMappings ?? [])
 
@@ -98,6 +109,15 @@ export function ExportReviewView({ eyebrow, title, description }: Props) {
       .catch(() => { /* suggestions are best-effort */ })
       .finally(() => setSuggestingContacts(false))
   }, [])
+
+  // TEMP TIMING DIAGNOSTIC — fires once the table (not the "Loading..." state) has rendered.
+  // Note: the contact-name suggestion fetch is still in flight at this point, so this
+  // measures "table visible", not "suggested contacts filled in".
+  useEffect(() => {
+    if (!loaded || timingPaintedRef.current) return
+    timingPaintedRef.current = true
+    devImportTiming.markReviewPaintedAndReport()
+  }, [loaded])
 
   const handleOverrideChange = useCallback((id: string, field: keyof CsvOverride, value: string | boolean) => {
     setOverrides(prev => {

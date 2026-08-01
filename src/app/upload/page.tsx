@@ -13,6 +13,8 @@ import { DEFAULT_SKIP_RULES } from '@/lib/skip-rules'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from '@/lib/jira-issue-types'
 import { UpgradePrompt } from '@/components/billing/UpgradePrompt'
 import { useGoogleCalendarImport, twoYearsAgo, getToday, getFirstOfMonth, ninetyDaysBeforeEnd } from '@/hooks/useGoogleCalendarImport'
+// TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
+import { devImportTiming } from '@/lib/dev-import-timing'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -235,6 +237,7 @@ export default function UploadPage() {
   }, [])
 
   async function handleSubmit(e: React.FormEvent, submitMode: ImportMode) {
+    devImportTiming.start('ics-upload') // TEMP TIMING DIAGNOSTIC
     e.preventDefault()
     if (!file) { setError('Please select an .ics file'); return }
     if (dateRangeTooLong) { setError('Date range cannot exceed 90 days. Please adjust your From date.'); return }
@@ -258,7 +261,9 @@ export default function UploadPage() {
       formData.append('defaultProjectKey', defaultProjectKey)
       formData.append('includedIssueTypes', JSON.stringify(includedIssueTypes))
 
+      devImportTiming.mark('requestSent') // TEMP TIMING DIAGNOSTIC
       const res = await fetch('/api/process', { method: 'POST', body: formData })
+      devImportTiming.mark('responseHeaders') // TEMP TIMING DIAGNOSTIC
       let data: Record<string, unknown> = {}
       const responseText = await res.text()
       try {
@@ -267,6 +272,8 @@ export default function UploadPage() {
         console.error('Failed to parse API response', { status: res.status, body: responseText.slice(0, 500) })
         data = {}
       }
+      devImportTiming.mark('bodyRead') // TEMP TIMING DIAGNOSTIC
+      devImportTiming.setEventCount(Array.isArray(data.workEntries) ? data.workEntries.length : 0) // TEMP
       if (res.status === 402) {
         const reason = typeof data.error === 'string' && data.error.toLowerCase().includes('trial')
           ? 'trial_expired'
@@ -320,6 +327,9 @@ export default function UploadPage() {
         Boolean(data.aiUnavailable),
         data.aiUnavailableReason as AiUnavailableReason | undefined
       )
+      // TEMP TIMING DIAGNOSTIC — set here too so the legacy-entries fallback is counted correctly
+      devImportTiming.setEventCount(processed.workEntries.length)
+      devImportTiming.mark('sessionSaved') // TEMP TIMING DIAGNOSTIC
       router.push(submitMode === 'csv' ? '/export-review' : '/review')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')

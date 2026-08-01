@@ -16,6 +16,8 @@ import { LearnedMappingsEditor } from '@/components/upload/LearnedMappingsEditor
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from '@/lib/jira-issue-types'
+// TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
+import { devImportTiming } from '@/lib/dev-import-timing'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -125,6 +127,9 @@ export default function ReviewPage() {
   const [ticketsTruncated, setTicketsTruncated] = useState(false)
   const [aiUnavailable, setAiUnavailable] = useState(false)
   const [aiUnavailableReason, setAiUnavailableReason] = useState<AiUnavailableReason | undefined>(undefined)
+  // TEMP TIMING DIAGNOSTIC — fire-once guards for the timing marks
+  const timingMountedRef = useRef(false)
+  const timingPaintedRef = useRef(false)
 
   useEffect(() => {
     const supabase = createClient()
@@ -135,6 +140,13 @@ export default function ReviewPage() {
   }, [router])
 
   useEffect(() => {
+    // TEMP TIMING DIAGNOSTIC — ref-guarded: dev StrictMode double-invokes effects, and a
+    // second call would overwrite the first timestamp with a later one, inflating the
+    // sessionSaved→reviewMounted gap with remount work.
+    if (!timingMountedRef.current) {
+      timingMountedRef.current = true
+      devImportTiming.markReviewMounted()
+    }
     const formConfig = loadFormConfig()
     setCatchAllMappings(formConfig?.catchAllMappings ?? [])
     setSkipRules(formConfig?.skipRules ?? DEFAULT_SKIP_RULES)
@@ -160,6 +172,14 @@ export default function ReviewPage() {
     setEndDate('')
     setLoaded(true)
   }, [router])
+
+  // TEMP TIMING DIAGNOSTIC — fires once the table (not the "Loading..." state) has
+  // rendered. Ref-guarded so dev StrictMode's double-invoke can't fire it twice.
+  useEffect(() => {
+    if (!loaded || timingPaintedRef.current) return
+    timingPaintedRef.current = true
+    devImportTiming.markReviewPaintedAndReport()
+  }, [loaded])
 
   const handleMappingsChange = useCallback((mappings: CatchAllMapping[]) => {
     setCatchAllMappings(mappings)
