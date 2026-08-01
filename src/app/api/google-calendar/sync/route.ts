@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchOpenTickets, fetchIssue } from '@/lib/jira-client'
-import { matchEvents } from '@/lib/ai-matcher'
+import { countEventsRequiringAi, matchEvents } from '@/lib/ai-matcher'
 import { fetchGoogleCalendarEvents, getGoogleCalendarCreds } from '@/lib/google-calendar-client'
 import { JIRA_CONNECTION_REQUIRED_MESSAGE, getJiraCreds, isCredsError, credsErrorResponse } from '@/lib/supabase/get-jira-creds'
 import { createClient } from '@/lib/supabase/server'
@@ -178,7 +178,10 @@ export async function POST(req: NextRequest) {
     const period = new Date().toISOString().slice(0, 7)
     const tier = entitlement.tier
     const limit = entitlement.monthlyAiLimit
-    const eventsToMatch = events.filter(e => !e.autoSkipped).length
+    // Only events that actually reach the model are charged. Computed here, after the
+    // ticket list is final (bulk fetch + missing-key lookups), so it sees exactly what
+    // matchEvents will see. See countEventsRequiringAi for why this repeats the work.
+    const eventsToMatch = countEventsRequiringAi(events, jiraTickets, catchAllMappings, defaultProjectKey, learnedMappings)
 
     if (!entitlement.canUseAi && eventsToMatch > 0) {
       return NextResponse.json({ error: entitlement.reason ?? 'Your plan does not currently allow AI matching.' }, { status: 402 })

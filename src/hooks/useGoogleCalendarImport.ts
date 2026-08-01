@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { saveSession, loadFormConfig } from '@/lib/storage'
 import { toUserMessage } from '@/lib/errors'
+import { useImportStages } from '@/hooks/useImportStages'
 // TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
 import { devImportTiming } from '@/lib/dev-import-timing'
 import type { JiraConfig, WorkEntry, JiraMatchesByWorkEntryId, AiUnavailableReason } from '@/types'
@@ -40,6 +41,7 @@ export function useGoogleCalendarImport() {
   const [endDate, setEndDate] = useState(getToday)
   const [syncing, setSyncing] = useState(false)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const stages = useImportStages()
 
   const minStartDate = endDate ? ninetyDaysBeforeEnd(endDate) : ''
   const dateRangeTooLong = startDate < minStartDate
@@ -67,6 +69,7 @@ export function useGoogleCalendarImport() {
     }
     setSyncing(true)
     setSyncError(null)
+    stages.start()
     try {
       const saved = loadFormConfig()
 
@@ -112,8 +115,11 @@ export function useGoogleCalendarImport() {
         data.aiUnavailableReason as AiUnavailableReason | undefined
       )
       devImportTiming.mark('sessionSaved') // TEMP TIMING DIAGNOSTIC
+      // Stop the stage timer BEFORE navigating so nothing fires after we leave.
+      stages.stop()
       router.push('/review')
     } catch (err) {
+      stages.stop()
       setSyncError(err instanceof Error ? err.message : 'Sync failed')
       setSyncing(false)
     }
@@ -124,6 +130,9 @@ export function useGoogleCalendarImport() {
     endDate,
     syncing,
     syncError,
+    // Staged progress for the in-flight import (see src/lib/import-stages.ts).
+    importStages: stages.stages,
+    activeStageIndex: stages.activeIndex,
     minStartDate,
     dateRangeTooLong,
     handleStartDateChange,

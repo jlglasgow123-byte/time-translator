@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { DisconnectConfirmModal } from '@/components/settings/DisconnectConfirmModal'
 import { useGoogleCalendarImport, getToday, twoYearsAgo } from '@/hooks/useGoogleCalendarImport'
+import { ImportProgress } from '@/components/upload/ImportProgress'
 
 export function GoogleCalendarSection() {
   const searchParams = useSearchParams()
@@ -24,6 +25,8 @@ export function GoogleCalendarSection() {
     endDate,
     syncing,
     syncError,
+    importStages,
+    activeStageIndex,
     dateRangeTooLong,
     handleStartDateChange,
     handleEndDateChange,
@@ -119,6 +122,9 @@ export function GoogleCalendarSection() {
           {syncError && (
             <div className="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{syncError}</div>
           )}
+          <div className="max-w-md">
+            <ImportProgress stages={importStages} activeIndex={activeStageIndex} />
+          </div>
           <div className="flex gap-3">
             <Button onClick={handleImport} disabled={syncing || dateRangeTooLong}>
               {syncing ? 'Importing…' : 'Import Events'}

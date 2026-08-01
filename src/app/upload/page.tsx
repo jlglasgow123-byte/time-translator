@@ -13,6 +13,9 @@ import { DEFAULT_SKIP_RULES } from '@/lib/skip-rules'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from '@/lib/jira-issue-types'
 import { UpgradePrompt } from '@/components/billing/UpgradePrompt'
 import { useGoogleCalendarImport, twoYearsAgo, getToday, getFirstOfMonth, ninetyDaysBeforeEnd } from '@/hooks/useGoogleCalendarImport'
+import { useImportStages } from '@/hooks/useImportStages'
+import { ImportProgress } from '@/components/upload/ImportProgress'
+import { CSV_IMPORT_STAGES, IMPORT_STAGES } from '@/lib/import-stages'
 // TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
 import { devImportTiming } from '@/lib/dev-import-timing'
 
@@ -127,7 +130,10 @@ export default function UploadPage() {
   const [billingBlock, setBillingBlock] = useState<'trial_expired' | 'ai_limit' | null>(null)
   const [mode, setMode] = useState<ImportMode>('jira')
   const [loading, setLoading] = useState(false)
-  const [status, setStatus] = useState('')
+  // Which stage list this import is using — the CSV path never calls the AI, so it
+  // shows a shorter sequence. Set before the request starts.
+  const [stageList, setStageList] = useState(IMPORT_STAGES)
+  const icsStages = useImportStages(stageList)
   const [latestWorklog, setLatestWorklog] = useState<LatestWorklog | null>(null)
   const [latestWorklogLoading, setLatestWorklogLoading] = useState(true)
   const [latestWorklogError, setLatestWorklogError] = useState<string | null>(null)
@@ -245,7 +251,9 @@ export default function UploadPage() {
     setError(null)
     setBillingBlock(null)
     setLoading(true)
-    setStatus('Matching…')
+    const nextStages = submitMode === 'csv' ? CSV_IMPORT_STAGES : IMPORT_STAGES
+    setStageList(nextStages)
+    icsStages.start(nextStages)
 
     try {
       const formData = new FormData()
@@ -280,7 +288,6 @@ export default function UploadPage() {
           : 'ai_limit'
         setBillingBlock(reason)
         setLoading(false)
-        setStatus('')
         return
       }
       if (!res.ok) {
@@ -334,8 +341,10 @@ export default function UploadPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
+      // Covers every exit: success (before navigation), the 402 early return, and
+      // all thrown errors. Guarantees no stage timer survives the request.
+      icsStages.stop()
       setLoading(false)
-      setStatus('')
     }
   }
 
@@ -587,6 +596,15 @@ export default function UploadPage() {
             <div className="rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{renderErrorMessage(gcal.syncError)}</div>
           )}
           <SectionHeading>Review</SectionHeading>
+
+          {/* Staged progress. Stage names advance on a timer calibrated to real
+              measured server durations — see src/lib/import-stages.ts. */}
+          {gcalConnected ? (
+            <ImportProgress stages={gcal.importStages} activeIndex={gcal.activeStageIndex} />
+          ) : (
+            <ImportProgress stages={icsStages.stages} activeIndex={icsStages.activeIndex} />
+          )}
+
           {gcalConnected ? (
           <button
             type="button"
@@ -600,7 +618,8 @@ export default function UploadPage() {
           >
             {gcal.syncing ? (
               <span className="flex flex-col items-center gap-1">
-                <span className="select-none animate-bounce text-2xl leading-none" style={{ filter: 'hue-rotate(175deg) saturate(2) brightness(0.75)' }} role="status" aria-label="Processing">👾</span>
+                {/* Decorative only — the ImportProgress list above is the announced status. */}
+                <span className="select-none animate-bounce text-2xl leading-none" style={{ filter: 'hue-rotate(175deg) saturate(2) brightness(0.75)' }} aria-hidden="true">👾</span>
                 <span>Importing…</span>
               </span>
             ) : 'Import Events'}
@@ -619,8 +638,9 @@ export default function UploadPage() {
             >
               {loading && mode === 'jira' ? (
                 <span className="flex flex-col items-center gap-1">
-                  <span className="select-none animate-bounce text-2xl leading-none" style={{ filter: 'hue-rotate(175deg) saturate(2) brightness(0.75)' }} role="status" aria-label="Processing">👾</span>
-                  <span>{status || 'Matching…'}</span>
+                  {/* Decorative only — the ImportProgress list above is the announced status. */}
+                  <span className="select-none animate-bounce text-2xl leading-none" style={{ filter: 'hue-rotate(175deg) saturate(2) brightness(0.75)' }} aria-hidden="true">👾</span>
+                  <span>Importing…</span>
                 </span>
               ) : 'Timesheets'}
             </button>
@@ -636,8 +656,9 @@ export default function UploadPage() {
             >
               {loading && mode === 'csv' ? (
                 <span className="flex flex-col items-center gap-1">
-                  <span className="select-none animate-bounce text-2xl leading-none" style={{ filter: 'hue-rotate(175deg) saturate(2) brightness(0.75)' }} role="status" aria-label="Processing">👾</span>
-                  <span>{status || 'Matching…'}</span>
+                  {/* Decorative only — the ImportProgress list above is the announced status. */}
+                  <span className="select-none animate-bounce text-2xl leading-none" style={{ filter: 'hue-rotate(175deg) saturate(2) brightness(0.75)' }} aria-hidden="true">👾</span>
+                  <span>Exporting…</span>
                 </span>
               ) : 'CSV Export'}
             </button>
