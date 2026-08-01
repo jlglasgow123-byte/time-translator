@@ -1,5 +1,7 @@
 import { createHash } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { createServiceClient } from './service'
+import { captureAppError } from '@/lib/observability'
 import type { CalendarEvent, JiraMatchesByWorkEntryId } from '@/types'
 
 type ImportRunStatus = 'started' | 'success' | 'failed'
@@ -78,6 +80,58 @@ export async function startImportRun(supabase: SupabaseClient, input: StartImpor
   return data.id as string
 }
 
+interface ImportRunAnalyticsRow {
+  import_run_id: string
+  user_id: string
+  duration_ms: number
+  event_count: number
+  rule_matched_count: number
+  ai_high_confidence_count: number
+  ai_medium_confidence_count: number
+  ai_low_confidence_count: number
+  unmatched_count: number
+  auth_ms?: number
+  creds_ms?: number
+  fetch_calendar_events_ms?: number
+  entitlement_ms?: number
+  fetch_jira_tickets_ms?: number
+  match_events_ms?: number
+}
+
+/**
+ * Writes one analytics row per completed import.
+ *
+ * `import_run_analytics` deliberately has an INSERT policy of `with check (false)`
+ * for authenticated clients — browsers must never write analytics rows — so this
+ * write cannot use the caller's request-scoped user client and must use the
+ * service-role client, which bypasses RLS. That is why the service client is
+ * constructed here rather than passed in: it stays confined to this one insert.
+ *
+ * `user_id` is the server-resolved authenticated user id supplied by the API
+ * route, never a caller-controlled value, so a user cannot forge rows for another
+ * user despite RLS being bypassed.
+ *
+ * Analytics is non-fatal to the import: every failure (including a missing
+ * service-role key, which makes createServiceClient throw) is captured and
+ * swallowed so the user's import still succeeds.
+ */
+async function writeImportRunAnalytics(row: ImportRunAnalyticsRow) {
+  try {
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('import_run_analytics').insert(row)
+    if (error) throw new Error(error.message)
+  } catch (error) {
+    captureAppError(error, {
+      eventType: 'import_run_analytics_write_failed',
+      userId: row.user_id,
+      importId: row.import_run_id,
+      action: 'write_import_run_analytics',
+      status: 'failed',
+      errorCode: 'import_run_analytics_write_failed',
+    })
+  }
+}
+
 export async function completeImportRun(supabase: SupabaseClient, input: CompleteImportRunInput) {
   const rows = input.events.map(event => {
     const match = input.jiraMatchesByWorkEntryId[event.uid]
@@ -153,7 +207,7 @@ export async function completeImportRun(supabase: SupabaseClient, input: Complet
       }
     }
 
-    const { error: analyticsError } = await supabase.from('import_run_analytics').insert({
+    await writeImportRunAnalytics({
       import_run_id: input.importRunId,
       user_id: input.userId,
       duration_ms: input.durationMs,
@@ -170,7 +224,6 @@ export async function completeImportRun(supabase: SupabaseClient, input: Complet
       fetch_jira_tickets_ms: input.stageDurations?.fetchJiraTicketsMs,
       match_events_ms: input.stageDurations?.matchEventsMs,
     })
-    if (analyticsError) console.error('[import-runs] failed to write import_run_analytics', analyticsError.message)
   }
 }
 
