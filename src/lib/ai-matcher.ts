@@ -14,6 +14,84 @@ interface AiMatch {
   reason: string
 }
 
+// --- Per-phase timing instrumentation (see Project_Model.md Section 9, import latency) ---
+// Added to find out what actually consumes matchEvents' time. Records unconditionally
+// (server-side, every import) so we get data across real usage. Purely Date.now() calls —
+// no serialisation in hot paths. If this is ever removed, delete this block, the
+// `phaseTimings` locals in matchEvents, and `reportPhaseTimings`.
+interface BatchPhaseTiming {
+  batchIndex: number
+  batchSize: number
+  promptChars: number
+  promptBuildMs: number
+  apiCallMs: number
+  parseMs: number
+  batchTotalMs: number
+}
+
+function reportPhaseTimings(summary: {
+  totalMs: number
+  deterministicMs: number
+  clientInitMs: number
+  aiWallClockMs: number
+  eventCount: number
+  nonSkippedCount: number
+  unmatchedCount: number
+  ticketCount: number
+  batchCount: number
+  batches: BatchPhaseTiming[]
+}) {
+  try {
+    const { batches } = summary
+    const nums = (pick: (b: BatchPhaseTiming) => number) => batches.map(pick)
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
+    const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0)
+
+    const apiCallMsList = nums(b => b.apiCallMs)
+    const promptBuildMsList = nums(b => b.promptBuildMs)
+    const parseMsList = nums(b => b.parseMs)
+
+    const details = {
+      // Wall-clock: these are real elapsed time within matchEvents and are additive.
+      totalMs: summary.totalMs,
+      deterministicMs: summary.deterministicMs,
+      clientInitMs: summary.clientInitMs,
+      aiWallClockMs: summary.aiWallClockMs,
+      // Aggregate: batches run concurrently via Promise.all, so per-batch durations
+      // OVERLAP in wall-clock time. `*MaxMs` approximates the wall-clock contribution
+      // of the slowest batch; `*SumMs` is total work across batches and will exceed
+      // aiWallClockMs whenever batchCount > 1. Do not add Sum values to totalMs.
+      apiCallMaxMs: max(apiCallMsList),
+      apiCallSumMs: sum(apiCallMsList),
+      promptBuildMaxMs: max(promptBuildMsList),
+      promptBuildSumMs: sum(promptBuildMsList),
+      parseMaxMs: max(parseMsList),
+      parseSumMs: sum(parseMsList),
+      // Context
+      eventCount: summary.eventCount,
+      nonSkippedCount: summary.nonSkippedCount,
+      unmatchedCount: summary.unmatchedCount,
+      ticketCount: summary.ticketCount,
+      batchCount: summary.batchCount,
+      promptCharsMax: max(nums(b => b.promptChars)),
+      promptCharsSum: sum(nums(b => b.promptChars)),
+      // Per-batch detail. Stringified because sanitizeDetails() in observability.ts
+      // collapses nested objects/arrays to '[object]' and truncates strings at 500 chars.
+      perBatch: JSON.stringify(batches).slice(0, 500),
+    }
+
+    console.log('[ai-matcher] phase timings', details)
+    captureAppEvent('matchEvents phase timings', 'info', {
+      eventType: 'match_events_phase_timings',
+      action: 'match_events_timing',
+      status: 'success',
+      details,
+    })
+  } catch {
+    // Instrumentation must never affect matching.
+  }
+}
+
 // Returns the best jiraKey from a learned mapping (most frequent), or null if none.
 // Also returns whether there was a conflict (same title mapped to multiple keys).
 function resolveLearned(learned: LearnedMapping): { jiraKey: string; conflicted: boolean } | null {
@@ -87,8 +165,14 @@ export async function matchEvents(
   defaultProjectKey: string,
   learnedMappings: LearnedMapping[] = []
 ): Promise<WorkEntryProcessingResult> {
+  const tStart = Date.now()
+  const batchTimings: BatchPhaseTiming[] = []
+  let clientInitMs = 0
+  let aiWallClockMs = 0
+
   const nonSkipped = events.filter(e => !e.autoSkipped)
   const { matched: deterministicMatches, unmatched } = deterministic(nonSkipped, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
+  const deterministicMs = Date.now() - tStart
 
   const ticketMap = new Map(tickets.map(t => [t.key, t]))
   const aiMatches = new Map<string, AiMatch>()
@@ -96,19 +180,42 @@ export async function matchEvents(
   let aiUnavailableReason: 'credits_exhausted' | 'auth_failed' | undefined
 
   if (unmatched.length > 0 && tickets.length > 0) {
+    const tClientInit = Date.now()
     const client = new Anthropic()
+    clientInitMs = Date.now() - tClientInit
+    // NOTE: this will almost certainly read ~0ms. The SDK constructor does not open a
+    // connection — TLS/connection setup happens lazily on the first request, so that
+    // cost lands inside apiCallMs (specifically in the first/slowest batch) rather than here.
 
     const BATCH = 50
     const batches: CalendarEvent[][] = []
     for (let i = 0; i < unmatched.length; i += BATCH) batches.push(unmatched.slice(i, i + BATCH))
     const totalBatches = batches.length
 
+    const tAiStart = Date.now()
     const batchResults = await Promise.all(
       batches.map(async (batch, batchIdx) => {
         const batchIndex = batchIdx + 1
+        const tBatchStart = Date.now()
         const prompt = buildPrompt(batch, tickets, defaultProjectKey, learnedMappings)
+        const promptBuildMs = Date.now() - tBatchStart
+        const promptChars = prompt.length
+        let apiCallMs = 0
+        let parseMs = 0
+        const recordBatchTiming = () => {
+          batchTimings.push({
+            batchIndex,
+            batchSize: batch.length,
+            promptChars,
+            promptBuildMs,
+            apiCallMs,
+            parseMs,
+            batchTotalMs: Date.now() - tBatchStart,
+          })
+        }
 
         let message: Awaited<ReturnType<typeof client.messages.create>>
+        const tApiCall = Date.now()
         try {
           message = await client.messages.create({
             model: MODEL,
@@ -117,6 +224,8 @@ export async function matchEvents(
             messages: [{ role: 'user', content: prompt }],
           })
         } catch (apiError) {
+          apiCallMs = Date.now() - tApiCall
+          recordBatchTiming()
           const status = apiError instanceof Anthropic.APIError ? apiError.status : undefined
           const creditsExhausted = status === 402
           const authFailed = status === 401
@@ -142,9 +251,14 @@ export async function matchEvents(
           return []
         }
 
+        apiCallMs = Date.now() - tApiCall
+
         const stopReason = message.stop_reason
         const raw = message.content[0]?.type === 'text' ? message.content[0].text : ''
+        const tParse = Date.now()
         const parsed = parseAiResponse(raw)
+        parseMs = Date.now() - tParse
+        recordBatchTiming()
 
         if (stopReason === 'max_tokens') {
           const details = {
@@ -215,6 +329,8 @@ export async function matchEvents(
         return parsed
       })
     )
+
+    aiWallClockMs = Date.now() - tAiStart
 
     for (const matches of batchResults) {
       for (const m of matches) aiMatches.set(m.uid, m)
@@ -293,6 +409,19 @@ export async function matchEvents(
       matchSource,
     }
   }
+
+  reportPhaseTimings({
+    totalMs: Date.now() - tStart,
+    deterministicMs,
+    clientInitMs,
+    aiWallClockMs,
+    eventCount: events.length,
+    nonSkippedCount: nonSkipped.length,
+    unmatchedCount: unmatched.length,
+    ticketCount: tickets.length,
+    batchCount: batchTimings.length,
+    batches: batchTimings,
+  })
 
   return { workEntries, jiraMatchesByWorkEntryId, aiUnavailable, aiUnavailableReason }
 }

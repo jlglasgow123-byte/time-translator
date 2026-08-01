@@ -63,6 +63,10 @@ const faqs = [
     a: 'AI helps match ambiguous calendar events to Jira tickets when no exact rule or key is found. Explicit Jira keys and saved mapping rules always take priority over AI. Every AI suggestion shows a confidence level and reason, and you review it before anything is logged.',
   },
   {
+    q: 'Can I log time to more than one Jira project?',
+    a: 'Yes, but there are two different paths. If a calendar event has a Jira key in its title (for example "CSD-123 client call"), it is matched straight to that ticket — this works for any project, and it takes priority over everything else. If an event has no key in the title, AI matches it against your default project only, using that project\'s open tickets. So if you work across several projects, put the Jira key in the title for anything outside your default project. You can also create a mapping rule in Settings for an event title you use often.',
+  },
+  {
     q: 'Will I still review the result?',
     a: 'Yes. Nothing is exported or logged without your review. The app removes repetitive admin, then gives you a clean review step before anything leaves the app.',
   },

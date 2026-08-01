@@ -386,6 +386,11 @@ function SettingsInner() {
                 onChange={e => setDefaultProjectKey(e.target.value.toUpperCase())}
                 className="w-32 rounded border border-gray-300 px-3 py-2 text-sm font-mono uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <p className="mt-1.5 text-xs text-gray-500">
+                Events without a Jira key in the title are AI-matched against <strong>this project only</strong>. To log
+                time to a different project, put its key in the event title (e.g. <span className="font-mono">CSD-123</span>) —
+                that always wins, for any project.
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>

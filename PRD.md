@@ -107,6 +107,7 @@ Desired order — each tier beats the next:
 
 ### 6.7 Settings (implemented)
 - Jira credentials + test, timezone, calendar name, default project key, issue-type inclusion, usage/entitlement display.
+- **Default project key is a hard scope for AI matching, not a ranking preference.** An event whose title contains a Jira key is matched deterministically to that key and can target *any* project. An event with no key in its title is AI-matched against the default project's open tickets **only** — the prompt is built from that project alone, and the model is instructed to use no other keys. Deliberate: it keeps the AI prompt small and the matching predictable. Users working across several projects put the key in the event title, or create a mapping rule.
 
 ### 6.8 Legal / Trust / Help (implemented)
 - Privacy Policy, Terms, Help/FAQ. Business entity + ABN + contact disclosed.
