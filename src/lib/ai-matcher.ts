@@ -117,11 +117,19 @@ function reportPhaseTimings(summary: {
       // Token usage. Same max/sum distinction as the timings: Sum is total work across
       // all batches; Max is the slowest/largest single batch, which is the one that maps
       // onto apiCallMaxMs. null means no batch reported usage — never silently 0.
-      inputTokensMax: orNull(inputTokensList, max),
-      inputTokensSum: orNull(inputTokensList, sum),
-      outputTokensMax,
-      outputTokensSum: orNull(outputTokensList, sum),
-      msPerOutputTokenMax,
+      //
+      // NAMING IS LOAD-BEARING: sanitizeDetails() in observability.ts DELETES any key
+      // matching /token|secret|password|cookie|authorization|api[_-]?key/i as a
+      // credential-redaction measure. Fields named *Tokens*/*Token* were silently
+      // dropped — which is why the first version of this instrumentation reported every
+      // token field as NULL while usageMissingBatches read 0 (that key survived, the
+      // token keys did not). Use "Toks"/"Tok", which do not match the filter. Do not
+      // rename these back to *Token*, and do not weaken the redaction filter.
+      inputToksMax: orNull(inputTokensList, max),
+      inputToksSum: orNull(inputTokensList, sum),
+      outputToksMax: outputTokensMax,
+      outputToksSum: orNull(outputTokensList, sum),
+      msPerOutputTokMax: msPerOutputTokenMax,
       usageMissingBatches,
       // Per-batch detail. Stringified because sanitizeDetails() in observability.ts
       // collapses nested objects/arrays to '[object]' and truncates strings at 500 chars.
