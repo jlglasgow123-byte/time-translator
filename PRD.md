@@ -94,7 +94,7 @@ Desired order — each tier beats the next:
 4. Needs-review / no-match
 
 - Duplicate detection with conservative fingerprint (title + start + end + duration); first copy active, later copies auto-skipped.
-- Confidence labels: `HIGH` / `MEDIUM` / `LOW`, each with a human-readable match **reason**.
+- Confidence labels: `HIGH` / `MEDIUM` / `LOW`, shown on every suggestion. A match **reason** is recorded for every row and persisted to `import_event_traces`, but is surfaced in the review UI only for deterministic (rule-based) matches; for AI matches it is support-inspectable rather than user-visible. Decided 2026-08-01 in favour of import speed — the reason costs ~45–55 output tokens per AI-matched event, and output generation is the sole driver of import latency. Explainability for the user rests on the confidence label, the editable Jira key, and the ticket summary.
 - Issue-type inclusion settings (e.g. include tasks/stories, exclude epics).
 - **Product truth:** AI need not be perfect, but it must never feel random — every suggestion is explainable and reviewable.
 

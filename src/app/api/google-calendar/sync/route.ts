@@ -207,6 +207,8 @@ export async function POST(req: NextRequest) {
     let jiraMatchesByWorkEntryId
     let aiUnavailable = false
     let aiUnavailableReason
+    // Guards against double-refunding — see the equivalent comment in /api/process.
+    let usageRefunded = false
     try {
       const result = await matchEvents(events, jiraTickets, catchAllMappings, defaultProjectKey, learnedMappings)
       workEntries = result.workEntries
@@ -214,8 +216,41 @@ export async function POST(req: NextRequest) {
       aiUnavailable = result.aiUnavailable ?? false
       aiUnavailableReason = result.aiUnavailableReason
       lap(`matchEvents (${eventsToMatch} events, ${jiraTickets.length} tickets)`, 'matchEventsMs')
+
+      // Refund events charged for but never matched due to an Anthropic-side failure.
+      // Clamped so a bad count can never refund more than was consumed.
+      const toRefund = Math.min(result.unbilledEventCount ?? 0, eventsToMatch)
+      if (toRefund > 0) {
+        usageRefunded = true
+        try {
+          await refundAiUsage(user.id, period, toRefund)
+          captureAppEvent('Refunded AI usage for provider-side failure', 'warning', {
+            eventType: 'ai_usage_refunded',
+            userId: user.id,
+            requestId,
+            importId: importRunId ?? undefined,
+            route: '/api/google-calendar/sync',
+            action: 'refund_ai_usage',
+            status: 'success',
+            details: { eventsToMatch, refunded: toRefund, aiUnavailable, aiUnavailableReason },
+          })
+        } catch (refundError) {
+          // Never fail the user's sync over a refund — capture and continue.
+          captureAppError(refundError, {
+            eventType: 'ai_usage_refund_failed',
+            userId: user.id,
+            requestId,
+            importId: importRunId ?? undefined,
+            route: '/api/google-calendar/sync',
+            action: 'refund_ai_usage',
+            status: 'failed',
+            errorCode: 'ai_usage_refund_failed',
+            details: { eventsToMatch, refunded: toRefund },
+          })
+        }
+      }
     } catch (error) {
-      await refundAiUsage(user.id, period, eventsToMatch)
+      if (!usageRefunded) await refundAiUsage(user.id, period, eventsToMatch)
       if (importRunId) {
         try {
           await failImportRun(supabase, { importRunId, userId: user.id, error, errorCode: 'match_failed' })

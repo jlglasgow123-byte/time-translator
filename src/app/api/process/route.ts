@@ -327,6 +327,10 @@ export async function POST(req: NextRequest) {
 
     let aiUnavailable = false
     let aiUnavailableReason: AiUnavailableReason | undefined
+    // Guards against double-refunding. matchEvents can partially fail (refunded below)
+    // and the request can then still throw before responding, which would hit the catch
+    // block's full refund as well. Once either path refunds, the other must not.
+    let usageRefunded = false
     try {
       const result = await matchEvents(events, jiraTickets, catchAllMappings, defaultProjectKey, learnedMappings)
       workEntries = result.workEntries
@@ -334,8 +338,43 @@ export async function POST(req: NextRequest) {
       aiUnavailable = result.aiUnavailable ?? false
       aiUnavailableReason = result.aiUnavailableReason
       lap(`matchEvents (${eventsToMatch} events, ${jiraTickets.length} tickets)`)
+
+      // Refund events charged for but never matched due to an Anthropic-side failure —
+      // the outage is ours, so the user's monthly cap should not absorb it. Clamped to
+      // eventsToMatch so a bug in the count can never refund more than was consumed.
+      const toRefund = Math.min(result.unbilledEventCount ?? 0, eventsToMatch)
+      if (toRefund > 0) {
+        usageRefunded = true
+        try {
+          await refundAiUsage(user.id, period, toRefund)
+          captureAppEvent('Refunded AI usage for provider-side failure', 'warning', {
+            eventType: 'ai_usage_refunded',
+            userId: user.id,
+            requestId,
+            importId: importRunId ?? undefined,
+            route: '/api/process',
+            action: 'refund_ai_usage',
+            status: 'success',
+            details: { eventsToMatch, refunded: toRefund, aiUnavailable, aiUnavailableReason },
+          })
+        } catch (refundError) {
+          // A failed refund must never fail the user's import — they still get their
+          // matches. Captured so the overcharge is visible and can be corrected.
+          captureAppError(refundError, {
+            eventType: 'ai_usage_refund_failed',
+            userId: user.id,
+            requestId,
+            importId: importRunId ?? undefined,
+            route: '/api/process',
+            action: 'refund_ai_usage',
+            status: 'failed',
+            errorCode: 'ai_usage_refund_failed',
+            details: { eventsToMatch, refunded: toRefund },
+          })
+        }
+      }
     } catch (error) {
-      await refundAiUsage(user.id, period, eventsToMatch)
+      if (!usageRefunded) await refundAiUsage(user.id, period, eventsToMatch)
       if (importRunId) {
         try {
           await failImportRun(supabase, { importRunId, userId: user.id, error, errorCode: 'match_failed' })

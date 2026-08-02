@@ -4,6 +4,7 @@
 
 **Owner:** Jasmine Glasgow
 **Created:** 2026-07-24
+**Last updated:** 2026-08-03 — merged in the two-audience go-to-market strategy, pricing/positioning, and the Google contingency from the earlier "5-Week Launch Runway" artifact.
 **Status:** Active — this is the working source of truth for the run to launch.
 **Related docs:** `PRD.md` (product), `Project_Model.md` (process/scope), `Logs/backlog.md` (task detail), `CHANGELOG.md` (dated history).
 
@@ -14,6 +15,8 @@
 The engine is **built**. The risk before launch is not "we need to build features" — it is **"most features have never been verified end-to-end in production with real money and real emails."** This plan is therefore mostly a *verification-and-readiness* plan, not a build plan.
 
 **Just unblocked (2026-07-24):** Google approved the `calendar.readonly` **sensitive scope**. Google Calendar OAuth was already built and shipped (backlog, DONE 2026-07-13) but gated to test-users-only pending this approval. It is now available to **all users** — the headline "connect your calendar, no file upload" flow is live pending one live end-to-end verification.
+
+**Key structural fact (carried over from the runway plan):** the **beta cohort does not need Google at all.** The vibe-coder beta runs entirely on `.ics` upload + Jira — no `calendar.readonly`, no dependency on the approval that just landed. This is what let beta proceed independently while Google deliberated, and it remains the product's robust fallback path (see the Google contingency in §7). Google approval is what makes the *founder/finance* public launch friction-free; it was never a beta blocker.
 
 **The genuine launch blockers (all "built, not verified"):**
 
@@ -61,6 +64,10 @@ Every week runs a **Technical (T)** track and a **Marketing (M)** track in paral
 ## 3. Week-by-week plan
 
 > Weeks run Monday–Sunday. Launch is Sat 30 Aug (end of Week 5).
+>
+> **Progress note (2026-08-03):** Weeks 0–1 have elapsed. Weeks 2–5 are the live runway. Verify against the checklist in §5 what actually got done in Weeks 0–1 rather than assuming — the AI-matching/analytics work shipped 1 Aug (see `CHANGELOG.md`) was real progress but sat outside this plan's Week 0–1 scope, so some verification items may still be open. If the schedule has slipped, **slip the whole grid together** rather than compressing the freeze/soak week.
+>
+> **Marketing is a slow-burn track from Week 1, not a Week-4 sprint.** Recruiting a beta cohort and warming the Facebook groups have their own lead time — the relationship-led founder audience does not respond to a launch-week push (see §6).
 
 ### Week 0 — This weekend (Thu 24 Jul – Sun 27 Jul) — "Stop the bleeding"
 - **T:** Configure **`RESEND_API_KEY`** end-to-end: sign up at resend.com, verify `timetranslator.com.au` sending domain (DNS), generate key, add to Vercel (Production), redeploy. Then confirm `/contact` sends a real email AND `gh workflow run weekly-security-report.yml` lands in the inbox. *(This unblocks the contact form, security report, error digests, AND the beta consent emails below.)*
@@ -77,7 +84,7 @@ Every week runs a **Technical (T)** track and a **Marketing (M)** track in paral
 - **T:** **Stripe billing E2E in production** (backlog steps): start trial → upgrade → checkout with a real card → `subscription_tier` updates → AI limit → 5,000 → customer portal loads → annual toggle hits correct price IDs → promo code grants Pro. Confirm the webhook points at `https://www.timetranslator.com.au/api/stripe/webhook`.
 - **T:** **Entitlement enforcement E2E**: 30-day trial + 200 limit; expired trial blocks; paid → 5,000; `invoice.payment_failed` → `past_due`; cancellation blocks after period end.
 - **T (build, small):** **Beta consent + `FREETIME` flow** per `beta-tester-consent-plan.md` (migration `202607120001_marketing_consent.sql` **[FLAG MIGRATION TO JASMINE]**, consent checkbox, settings toggle, one-click unsubscribe route). Needed before any marketing email goes out (Spam Act 2003).
-- **M:** Build the **beta-tester outreach list** (Facebook group + direct contacts). Draft the `FREETIME` invite copy (free month of Pro, consent required).
+- **M:** Recruit the **vibe-coder beta (Audience 2, §6)** — post the "free month to break my app" call in dev/vibe-coder groups now, so testers are lined up before the beta week. Prep `FREETIME` promo codes (consent required). *In parallel, keep showing up in the female-founder groups (Audience 1) — presence and value, no pitch yet.*
 - **M:** Draft launch-announcement assets: short post, email, and a "how it works in 60 seconds" clip.
 
 ### Week 3 — Mon 11 Aug – Sun 17 Aug — "Verify the edges + first real users"
@@ -146,6 +153,67 @@ Nothing here ships to public launch until every line is ✅ or a consciously-acc
 
 ---
 
-## 6. Change log for this plan
+## 6. Go-to-market: two audiences, two jobs
 
-- 2026-07-24 — Plan created. Launch date 30 Aug, paid launch, balanced tracks. Corrected the earlier PRD-derived assumption that Google Calendar OAuth was unbuilt P2 work — it was built 2026-07-13 and only gated on the sensitive-scope approval that landed today.
+The soft-marketing traction already built in Facebook groups gives us **two distinct audiences**. They map cleanly onto our two output lanes — and onto two different jobs in the launch. **One hardens the product; the other pays for it.** Both tracks start warming in Week 1 — the relationship-led groups do not respond to a launch-week sprint.
+
+### Audience 1 — the real market (revenue): female founders & solopreneurs
+
+- **Output lane:** Finance — Xero / MYOB CSV.
+- They don't care about Jira. The magic for them is **"your calendar becomes your invoices."**
+- These are the **A$5–15/mo payers who stay** — the product is ultimately for them.
+- Messaging leads with the **calendar → finance transformation** and the **review-before-anything** trust angle.
+- They **need Google Calendar sync** (a non-technical user won't hand-export `.ics`) — which is exactly why the friction-free public launch benefits from the Google approval now in hand.
+- **Reach:** the Facebook groups where there's already soft-marketing traction + warm network.
+
+### Audience 2 — not the market, but the QA army: vibe coders + devs who love breaking things
+
+- **Output lane:** Jira worklogs.
+- **Not the revenue market** — but they understand Jira and will trial for a free month just to play.
+- "Real devs who rip vibe-coded apps apart" are the **most robust beta testers — effectively free labour.**
+- Hand them a **`FREETIME` promo code** (system already built), point them at the **Jira + `.ics`** path.
+- They run on `.ics` + Jira — **no Google needed** — so this cohort ships during the beta regardless of Google status.
+- Treat their bug reports as the **hardening pass before founders arrive.**
+
+**The sequence that ties them together:**
+
+> Audience 2 (vibe coders) → *breaks & hardens* → product proven → *Google clears* → Audience 1 (founders) public launch.
+>
+> **Audience 2 de-risks Audience 1.** The beta needs no Google; only the founder-facing public launch leans on it.
+
+### Positioning — one story, the founder one
+
+- **Park** the enterprise "operational visibility" narrative — that's Phase 2 (~2yr out).
+- **Lead line:** *"Your calendar already knows what you worked on. Time Translator turns it into invoices and worklogs — you just review."*
+- **Differentiator:** AI assists, **you approve** — never "AI does your books."
+
+### Pricing (as drafted in the runway plan — confirm before launch)
+
+- **A$5/mo — 50** · **A$15/mo — 150.** *(Cross-check against the entitlement tiers in `src/lib/billing/entitlements.ts`, which currently encode 200 trial / 5,000 paid AI-match limits — reconcile the marketing pricing copy with the actual enforced limits before publishing.)*
+- Confirm **GST treatment on AUD pricing** is correct for a sole trader.
+
+### Assets & channels — cheap, high-leverage, few
+
+- **Repurpose the Google demo video** as a 60–90s landing hero — already recorded.
+- Landing conversion pass: 3-step visual, honest pricing, one CTA.
+- Pick **1–2 channels** (the Facebook groups + warm network), **not five.**
+- The **referral loop is already built** — surface it at signup. Free growth already paid for.
+- **Confirm signup attribution works** before spending channel effort.
+
+---
+
+## 7. Top risks & the Google contingency
+
+1. **"Done in code" ≠ "works in prod."** Half the backlog is exactly this. The **Xero-CSV-into-real-Xero** check and **Stripe-in-prod** are the two most likely to bite — both scheduled early (Weeks 2–3) for that reason.
+2. **Blind to errors until Resend is live.** Until `RESEND_API_KEY` is configured, a launch-day failure is invisible. Non-negotiable Week-0/1 item — verify it actually landed.
+3. **No go-to-market motion yet.** Not a blocker to *launching*, but a blocker to launch *mattering*. Don't let verification eat the marketing track (§6).
+4. **Google timeline was never fully ours.** Approval is now in hand, but the **contingency stays documented** in case a future scope/branding re-review ever regates the flow:
+
+   > **Google contingency:** if Google Calendar sync is ever unavailable at a launch moment, fall back to an **`.ics`-first public launch with GCal flagged "beta."** The `.ics` path is supported end-to-end and is already the beta's backbone — so this is a graceful degrade, not a blocker.
+
+---
+
+## 8. Change log for this plan
+
+- 2026-07-24 — Plan created. Launch date 30 Aug, paid launch, balanced tracks. Corrected the earlier PRD-derived assumption that Google Calendar OAuth was unbuilt P2 work — it was built 2026-07-13 and only gated on the sensitive-scope approval that landed that day.
+- 2026-08-03 — Merged in the stronger material from the earlier "5-Week Launch Runway" artifact: the two-audience GTM strategy (§6), pricing/positioning line, the "beta decouples from Google" structural insight (§0), and the Google contingency (§7). Added a progress note to §3 marking Weeks 0–1 as elapsed.

@@ -223,27 +223,77 @@ function deterministic(
   return { matched, unmatched }
 }
 
+// THE SINGLE DECISION POINT for "which events go to the AI".
+//
+// Both the billing count (countEventsRequiringAi) and the actual AI call path
+// (matchEvents) derive their event set from this one function, so the two can no
+// longer drift apart. Any new gate on what reaches the model — a minimum duration,
+// an event-type filter, anything — goes HERE and is automatically reflected in what
+// the user is charged. Do not add such a gate inside matchEvents.
+//
+// Returns both halves of the deterministic pass because matchEvents needs the
+// `matched` map too, and must not run deterministic() twice.
+//
+// Gates applied, in order:
+//  1. `tickets.length === 0` — with no tickets matchEvents skips the AI entirely,
+//     so nothing is selected and no usage is charged.
+//  2. `autoSkipped` events are excluded.
+//  3. Events resolved by deterministic() (Jira key in title, catch-all mapping rule,
+//     or learned history) never reach Anthropic.
+//
+// Order is load-bearing: matchEvents batches `selected` in slices of BATCH, so the
+// array order determines batch composition. It is the order of `events` as given,
+// which deterministic() preserves.
+function selectForAi(
+  events: CalendarEvent[],
+  tickets: JiraTicket[],
+  catchAllMappings: CatchAllMapping[],
+  learnedMappings: LearnedMapping[],
+  defaultProjectKey: string
+): {
+  nonSkipped: CalendarEvent[]
+  deterministicMatches: Map<string, { jiraKey: string; confidence: Confidence; reason: string; matchSource: MatchSource }>
+  selected: CalendarEvent[]
+} {
+  const nonSkipped = events.filter(e => !e.autoSkipped)
+  const { matched, unmatched } = deterministic(nonSkipped, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
+  return {
+    nonSkipped,
+    deterministicMatches: matched,
+    // Gate 1. Kept here rather than as an early return so `deterministicMatches` is
+    // still populated when there are no tickets — matchEvents relies on it to build
+    // its result rows either way.
+    selected: tickets.length === 0 ? [] : unmatched,
+  }
+}
+
+// The events that will actually be sent to the model. Thin wrapper over selectForAi.
+export function selectEventsForAi(
+  events: CalendarEvent[],
+  tickets: JiraTicket[],
+  catchAllMappings: CatchAllMapping[],
+  learnedMappings: LearnedMapping[],
+  defaultProjectKey: string
+): CalendarEvent[] {
+  return selectForAi(events, tickets, catchAllMappings, learnedMappings, defaultProjectKey).selected
+}
+
 // How many of these events will actually be sent to the model.
 //
 // Callers must charge AI usage for THIS number, not for every non-skipped event.
-// matchEvents() runs deterministic() first — events resolved by a Jira key in the
-// title, a catch-all mapping rule, or learned history never reach Anthropic, so
-// charging for them overcharged users roughly 10x against their monthly cap.
+// Events resolved deterministically never reach Anthropic, so charging for them
+// overcharged users roughly 10x against their monthly cap.
 //
 // The usage cap has to be enforced BEFORE the API call, but the true count is only
 // known after deterministic matching. Rather than charge-then-refund (which would
 // leave a window where the user is over-charged, and could strand the overcharge if
 // the process died in between), the route calls this first and matchEvents repeats
-// the same deterministic pass internally.
+// the same selection internally.
 //
 // The duplicated work is pure in-memory string matching over at most
 // MAX_EVENTS_PER_IMPORT events. Benchmarked at ~0.2ms for a worst-case 146-event
 // import with 20 mapping rules and 200 learned mappings, against a ~5-12s total
 // import — i.e. under 0.01% of the wait. Correct billing is worth that.
-//
-// This MUST stay consistent with matchEvents' own gating: it mirrors both the
-// autoSkipped filter and the `tickets.length > 0` condition, because with no
-// tickets matchEvents skips the AI entirely and no usage should be charged.
 export function countEventsRequiringAi(
   events: CalendarEvent[],
   tickets: JiraTicket[],
@@ -251,10 +301,7 @@ export function countEventsRequiringAi(
   defaultProjectKey: string,
   learnedMappings: LearnedMapping[] = []
 ): number {
-  if (tickets.length === 0) return 0
-  const nonSkipped = events.filter(e => !e.autoSkipped)
-  const { unmatched } = deterministic(nonSkipped, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
-  return unmatched.length
+  return selectEventsForAi(events, tickets, catchAllMappings, learnedMappings, defaultProjectKey).length
 }
 
 export async function matchEvents(
@@ -269,16 +316,21 @@ export async function matchEvents(
   let aiWallClockMs = 0
 
   let clientUseSeq = 0
-  const nonSkipped = events.filter(e => !e.autoSkipped)
-  const { matched: deterministicMatches, unmatched } = deterministic(nonSkipped, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
+  // Single decision point — see selectForAi. matchEvents must NOT re-apply its own
+  // gates on top of `unmatched`, or billing (which counts the same selection) diverges.
+  const { nonSkipped, deterministicMatches, selected: unmatched } =
+    selectForAi(events, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
   const deterministicMs = Date.now() - tStart
 
   const ticketMap = new Map(tickets.map(t => [t.key, t]))
   const aiMatches = new Map<string, AiMatch>()
   let aiUnavailable = false
   let aiUnavailableReason: 'credits_exhausted' | 'auth_failed' | undefined
+  // Number of selected (i.e. charged) events that reached the model but came back with
+  // nothing because of an Anthropic-side failure. The caller refunds exactly this many.
+  let unbilledEventCount = 0
 
-  if (unmatched.length > 0 && tickets.length > 0) {
+  if (unmatched.length > 0) {
     const client = anthropic
     clientUseSeq = ++clientUseCount
 
@@ -339,6 +391,11 @@ export async function matchEvents(
             aiUnavailable = true
             aiUnavailableReason = creditsExhausted ? 'credits_exhausted' : 'auth_failed'
           }
+          // The whole batch produced nothing and the cause is on the Anthropic side
+          // (auth, credits, rate limit, 5xx, network timeout — all land here). The user
+          // was charged for these events up front, so mark them all for refund. Cause
+          // is deliberately not discriminated: the user got nothing either way.
+          unbilledEventCount += batch.length
           console.error('[ai-matcher] Anthropic API call failed', details)
           captureAppError(apiError, {
             eventType: creditsExhausted ? 'ai_credits_exhausted' : authFailed ? 'ai_key_invalid' : 'ai_api_error',
@@ -372,6 +429,13 @@ export async function matchEvents(
         recordBatchTiming()
 
         if (stopReason === 'max_tokens') {
+          // Truncation still returns real matches for the events the model got through
+          // before the cap, so this is NOT refunded proportionally — the user did get
+          // value for the events that came back, and the unmatched remainder falls
+          // through to "needs review" rather than being lost. The one exception is a
+          // truncation so early that nothing parsed at all, which is indistinguishable
+          // from a failed call from the user's side and so is refunded in full.
+          if (parsed.length === 0) unbilledEventCount += batch.length
           const details = {
             batchIndex,
             totalBatches,
@@ -390,6 +454,11 @@ export async function matchEvents(
             details,
           })
         } else if (parsed.length === 0) {
+          // The call succeeded but nothing usable came back (unparseable or empty
+          // response). Same user-visible outcome as an API failure — no matches for a
+          // charge — so refund the batch. Note the max_tokens branch above deliberately
+          // does NOT refund: truncation still yields partial real matches.
+          unbilledEventCount += batch.length
           const details = {
             batchIndex,
             totalBatches,
@@ -446,9 +515,11 @@ export async function matchEvents(
     for (const matches of batchResults) {
       for (const m of matches) aiMatches.set(m.uid, m)
     }
-  } else if (unmatched.length > 0) {
+  } else if (tickets.length === 0 && nonSkipped.length > 0) {
+    // selectForAi zeroes the selection when there are no tickets, so `unmatched` is
+    // empty here by construction — report the pre-gate count for diagnostics.
     const details = {
-      unmatchedCount: unmatched.length,
+      unmatchedCount: nonSkipped.length - deterministicMatches.size,
       ticketCount: tickets.length,
     }
     console.warn('[ai-matcher] skipping AI matching because no Jira tickets were available', details)
@@ -534,7 +605,7 @@ export async function matchEvents(
     batches: batchTimings,
   })
 
-  return { workEntries, jiraMatchesByWorkEntryId, aiUnavailable, aiUnavailableReason }
+  return { workEntries, jiraMatchesByWorkEntryId, aiUnavailable, aiUnavailableReason, unbilledEventCount }
 }
 
 function buildPrompt(events: CalendarEvent[], tickets: JiraTicket[], defaultProjectKey: string, learnedMappings: LearnedMapping[]): string {

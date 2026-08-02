@@ -4,6 +4,11 @@ A running record of what has been built, fixed, and shipped. Most recent first.
 
 ---
 
+## 2026-08-03
+
+- **AI matches are now refunded when the failure is ours** — If the AI service is unavailable, out of credit, or rate-limits us, your import still completes but those events come back unmatched. Previously they were still counted against your monthly AI allowance, so you paid for something our side failed to deliver. Those matches are now credited back automatically. Refunds are counted per batch, so a partial failure returns exactly what was lost rather than all or nothing.
+- **Clarified what the AI shows you for each match** — The Help page and product docs said every AI suggestion displays a reason alongside its confidence level. In practice the review screen shows the confidence level, the matched ticket and an editable Jira key — the written reason is recorded with your import history where our support team can look it up, rather than displayed on screen. The wording now describes what actually happens. Generating that sentence is also the single biggest driver of import time, so keeping it out of the screen keeps imports faster.
+
 ## 2026-08-01
 
 - **Fixed AI matches being over-charged, by a lot** — Imports counted every calendar event against your monthly AI allowance, even though most events never reach the AI at all: events with a Jira key in the title, a mapping rule, or a remembered past choice are matched instantly without it. A real 146-event import was charged 146 AI matches when only 15 actually used AI — roughly a ten-fold overcharge. You are now only charged for events the AI genuinely matches, so trials and monthly limits last as long as they should.

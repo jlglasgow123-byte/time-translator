@@ -60,7 +60,7 @@ const faqs = [
   },
   {
     q: 'What does AI do?',
-    a: 'AI helps match ambiguous calendar events to Jira tickets when no exact rule or key is found. Explicit Jira keys and saved mapping rules always take priority over AI. Every AI suggestion shows a confidence level and reason, and you review it before anything is logged.',
+    a: 'AI helps match ambiguous calendar events to Jira tickets when no exact rule or key is found. Explicit Jira keys and saved mapping rules always take priority over AI. Every AI suggestion shows a confidence level, and you review and can change it before anything is logged. Each suggestion also records why it was made — that is kept with your import history and our support team can look it up if a match ever looks wrong.',
   },
   {
     q: 'Can I log time to more than one Jira project?',

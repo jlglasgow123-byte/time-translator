@@ -70,6 +70,10 @@ export interface WorkEntryProcessingResult {
   jiraMatchesByWorkEntryId: JiraMatchesByWorkEntryId
   aiUnavailable?: boolean
   aiUnavailableReason?: AiUnavailableReason
+  // How many charged events reached the model but yielded no matches because of an
+  // Anthropic-side failure. Routes refund exactly this many so a provider outage is
+  // never billed to the user. 0 on a fully successful run.
+  unbilledEventCount?: number
 }
 
 export interface JiraConfig {
