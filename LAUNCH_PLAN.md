@@ -24,7 +24,7 @@ The engine is **built**. The risk before launch is not "we need to build feature
 |---|---|---|
 | Stripe billing (checkout/portal/webhooks) | Built, never tested E2E in prod | Users cannot pay / double-charged / stuck — **kills paid launch** |
 | Billing entitlement enforcement | Built, never tested E2E | Trial/paid/blocked states wrong; revenue leak or lockout |
-| ~~`RESEND_API_KEY` not configured~~ | **Resolved 2026-08-03** — see backlog | Contact form + security report verified delivering; error digest still unobserved |
+| ~~`RESEND_API_KEY` not configured~~ | **Resolved 2026-08-03** — see backlog | Contact form, security report and error-alert cron routing all verified |
 | Import + matching flow | Not regression-tested since OAuth/parallelisation changes | Core product path could drop rows or mis-match |
 | Google Calendar live E2E | Now un-gated; never click-through tested live | Headline feature fails on first real user |
 | Xero CSV into real Xero | Never run through Xero's actual import | Export rejected by accounting software |
@@ -55,7 +55,7 @@ Every week runs a **Technical (T)** track and a **Marketing (M)** track in paral
 > **How this plan relates to the backlog:** `Logs/backlog.md` is the single source of truth for **technical** task status (it holds the full detail + test steps for each item). This plan covers **all** pre-launch activity — technical, marketing, and testing — sequenced by week. Where a **T** item here corresponds to a backlog entry, the **backlog owns its status**; this plan sequences and references it rather than re-tracking done/not-done. **Marketing/GTM lives only here**, never in the backlog. If a technical item's status is unclear, the backlog is authoritative.
 
 ### Guiding sequencing logic (technical)
-1. ~~**Unblock what's silently broken first** — `RESEND_API_KEY`.~~ **Done 2026-08-03** — email is live; the error digest is the one remaining unverified path.
+1. ~~**Unblock what's silently broken first** — `RESEND_API_KEY`.~~ **Done 2026-08-03** — email is live. Fixing this also surfaced that the nightly error-alert cron had been 307-redirecting since July and had never run; now fixed and verified.
 2. **De-risk the money path early** — Stripe + entitlements in Week 2, so there's time to fix breakage.
 3. **Verify the core product path** — import/matching, Google live, Jira history.
 4. **Verify the edges** — mobile, password reset, Xero-into-Xero.
@@ -106,7 +106,7 @@ Every week runs a **Technical (T)** track and a **Marketing (M)** track in paral
 - **Feature freeze Monday.** No new features — verification and critical fixes only.
 - **T (Mon–Wed):** Full dress-rehearsal run-through of the entire happy path as a brand-new user, on desktop and mobile, including a real paid upgrade. Fix only launch-blocking issues.
 - **T (Thu–Fri):** Final `npm run build` + `security:check` clean. Confirm all prod env vars, webhook, redirect allow-list, spend caps. Confirm error digest emails are landing.
-- **Sat 30 Aug — LAUNCH.** Publish announcement, open signups publicly, monitor Sentry + error digests + the funnel closely through the day. Keep a rollback/triage note handy.
+- **Sat 30 Aug — LAUNCH.** Publish announcement, open signups publicly, monitor the funnel closely through the day. **Watch `/admin/system-events` directly** — the error digest is daily, so it will not surface a launch-day problem in time to act on it. Keep a rollback/triage note handy.
 
 ---
 
