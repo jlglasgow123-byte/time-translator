@@ -16,7 +16,7 @@ The engine is **built**. The risk before launch is not "we need to build feature
 
 **Just unblocked (2026-07-24):** Google approved the `calendar.readonly` **sensitive scope**. Google Calendar OAuth was already built and shipped (backlog, DONE 2026-07-13) but gated to test-users-only pending this approval. It is now available to **all users** — the headline "connect your calendar, no file upload" flow is live pending one live end-to-end verification.
 
-**Key structural fact (carried over from the runway plan):** the **beta cohort does not need Google at all.** The vibe-coder beta runs entirely on `.ics` upload + Jira — no `calendar.readonly`, no dependency on the approval that just landed. This is what let beta proceed independently while Google deliberated, and it remains the product's robust fallback path (see the Google contingency in §7). Google approval is what makes the *founder/finance* public launch friction-free; it was never a beta blocker.
+**The beta uses Google Calendar — it's Plan A and it works.** Now that the scope is approved and the flow is live for all users, the beta cohort connects Google Calendar like any real user will. That's the whole point of a beta: exercise the primary path (connect calendar → review → log/export) before founders arrive, so any real-world issue surfaces on testers, not paying customers. The `.ics` upload path still exists as an alternative for anyone who prefers it, but it is **not** the beta's designated route and is no longer framed as a fallback we're depending on.
 
 **The genuine launch blockers (all "built, not verified"):**
 
@@ -51,6 +51,8 @@ Marketing baseline: landing page exists; `FUTURE/MARKETING/beta-tester-consent-p
 ## 2. The two tracks
 
 Every week runs a **Technical (T)** track and a **Marketing (M)** track in parallel, roughly balanced.
+
+> **How this plan relates to the backlog:** `Logs/backlog.md` is the single source of truth for **technical** task status (it holds the full detail + test steps for each item). This plan covers **all** pre-launch activity — technical, marketing, and testing — sequenced by week. Where a **T** item here corresponds to a backlog entry, the **backlog owns its status**; this plan sequences and references it rather than re-tracking done/not-done. **Marketing/GTM lives only here**, never in the backlog. If a technical item's status is unclear, the backlog is authoritative.
 
 ### Guiding sequencing logic (technical)
 1. **Unblock what's silently broken first** — `RESEND_API_KEY` (emails dead in prod today).
@@ -171,15 +173,15 @@ The soft-marketing traction already built in Facebook groups gives us **two dist
 - **Output lane:** Jira worklogs.
 - **Not the revenue market** — but they understand Jira and will trial for a free month just to play.
 - "Real devs who rip vibe-coded apps apart" are the **most robust beta testers — effectively free labour.**
-- Hand them a **`FREETIME` promo code** (system already built), point them at the **Jira + `.ics`** path.
-- They run on `.ics` + Jira — **no Google needed** — so this cohort ships during the beta regardless of Google status.
+- Hand them a **`FREETIME` promo code** (system already built); they connect **Google Calendar** and log to **Jira** — the same primary path a real user takes.
+- They mostly care about the Jira output lane, but they exercise the **full connect-calendar → review → log** flow, so they harden exactly what founders will rely on.
 - Treat their bug reports as the **hardening pass before founders arrive.**
 
 **The sequence that ties them together:**
 
-> Audience 2 (vibe coders) → *breaks & hardens* → product proven → *Google clears* → Audience 1 (founders) public launch.
+> Audience 2 (vibe coders) → *break &amp; harden the live product* → product proven → Audience 1 (founders) public launch.
 >
-> **Audience 2 de-risks Audience 1.** The beta needs no Google; only the founder-facing public launch leans on it.
+> **Audience 2 de-risks Audience 1.** They stress the real, Google-approved path so founders meet a product that's already been through its paces.
 
 ### Positioning — one story, the founder one
 
@@ -202,18 +204,17 @@ The soft-marketing traction already built in Facebook groups gives us **two dist
 
 ---
 
-## 7. Top risks & the Google contingency
+## 7. Top risks
 
 1. **"Done in code" ≠ "works in prod."** Half the backlog is exactly this. The **Xero-CSV-into-real-Xero** check and **Stripe-in-prod** are the two most likely to bite — both scheduled early (Weeks 2–3) for that reason.
 2. **Blind to errors until Resend is live.** Until `RESEND_API_KEY` is configured, a launch-day failure is invisible. Non-negotiable Week-0/1 item — verify it actually landed.
 3. **No go-to-market motion yet.** Not a blocker to *launching*, but a blocker to launch *mattering*. Don't let verification eat the marketing track (§6).
-4. **Google timeline was never fully ours.** Approval is now in hand, but the **contingency stays documented** in case a future scope/branding re-review ever regates the flow:
-
-   > **Google contingency:** if Google Calendar sync is ever unavailable at a launch moment, fall back to an **`.ics`-first public launch with GCal flagged "beta."** The `.ics` path is supported end-to-end and is already the beta's backbone — so this is a graceful degrade, not a blocker.
+4. **Google Calendar live check still owed.** The scope is approved and the flow is the primary path, but it still needs one real end-to-end run for a non-test user (consent → sync → refresh-on-expiry → disconnect revokes). Confirm it in the beta before founders arrive — that's what the beta is for.
 
 ---
 
 ## 8. Change log for this plan
 
 - 2026-07-24 — Plan created. Launch date 30 Aug, paid launch, balanced tracks. Corrected the earlier PRD-derived assumption that Google Calendar OAuth was unbuilt P2 work — it was built 2026-07-13 and only gated on the sensitive-scope approval that landed that day.
-- 2026-08-03 — Merged in the stronger material from the earlier "5-Week Launch Runway" artifact: the two-audience GTM strategy (§6), pricing/positioning line, the "beta decouples from Google" structural insight (§0), and the Google contingency (§7). Added a progress note to §3 marking Weeks 0–1 as elapsed.
+- 2026-08-03 — Merged in the stronger material from the earlier "5-Week Launch Runway" artifact: the two-audience GTM strategy (§6), pricing/positioning line, and a progress note to §3 marking Weeks 0–1 as elapsed.
+- 2026-08-03 — **Removed the stale "beta needs no Google / `.ics` fallback" framing** carried over from the pre-approval runway artifact. Google is approved and functional, so it's Plan A: the beta connects Google Calendar (the primary path), and there's no standing `.ics`-first contingency for a working feature. Updated §0, §6, and §7 accordingly; the remaining Google item is just the live end-to-end check, done during the beta.

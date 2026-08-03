@@ -1,8 +1,30 @@
 # Time Translator — Claude Code Guidelines
 
-## NEVER create artifacts for this project
+## NEVER publish Claude Artifacts for this project
 
-**Do not create Claude artifacts for anything in this project — ever.** This repo is linked to a work Claude account, and artifacts created here land in the wrong place. When a shareable or rendered document would otherwise be an artifact (a plan, a report, a page, a mockup), write it to a **file in the repo** instead. No exceptions.
+**Do not use the Claude Artifact tool (the Artifacts gallery that lives in the Claude account) for anything in this project — ever.** This repo is linked to a *work* Claude account (Cordel), and a Time Translator artifact published there lands in the wrong account's gallery. The only artifacts that belong in that account are Cordel-related.
+
+**This is not a ban on HTML or rendered documents.** When a shareable or rendered document is wanted (a plan, a report, a branded page, a mockup), **write it as a file in this repo** (e.g. `LAUNCH_PLAN.html`) with the `Write` tool — a self-contained file the user opens in a browser. That is always allowed. What is forbidden is calling the Artifact/publish tool that hosts it under the Claude account. No exceptions.
+
+## Referencing HTML / render-first files
+
+When pointing Jasmine to an HTML file (or any file whose value is in its rendering), give the **full absolute path as plain text** — e.g. `c:\DEV\PERSO\time-translator\LAUNCH_PLAN.html` — **not** a clickable markdown `[link](path)`. In her VS Code, a markdown link opens the file in text-edit mode showing raw source, which makes styled HTML useless. Plain-text full paths let her open it in a browser. Clickable `[file](path)` links are still fine for source files meant to be read as code/text (`.ts`, `.md` source, etc.).
+
+## Put things where they already belong — don't create new files by default
+
+Before creating any new file, **look for the existing home first.** If Jasmine says "add to the backlog," "add to the changelog," "record this decision," etc., she means the **existing file** that already serves that purpose — not a brand-new document. Only create a new file when there is genuinely no existing place for it, and say so when you do. Consolidate into the central files that already hold rules, decisions, and history.
+
+**The canonical homes (each holds one kind of thing — do not duplicate across them):**
+
+| Info | Home | Notes |
+| --- | --- | --- |
+| **Technical** work items — fixes, testing, engineering tasks (outstanding + done) | `Logs/backlog.md` | **Technical only — no marketing.** Local/untracked by design (stripped from the public repo). |
+| **All pre-launch activities** — technical *and* marketing *and* testing, sequenced by week + GTM/strategy | `LAUNCH_PLAN.md` | For technical items, **reference the backlog** rather than restating status, so status lives in one place. Marketing/GTM lives here, not in the backlog. |
+| **Accepted decisions** (what we chose + why) | `Project_Model.md` §6 | Decision log, not a task list. |
+| **Dated change history** (what shipped) | `CHANGELOG.md` | User-facing bullets per push. |
+| **Working rules / process** | this file (`CLAUDE.md`) | Central instructions. |
+
+When the launch plan and the backlog both touch a technical task, the **backlog owns the status** and the plan points to it — never maintain the same task status in two files.
 
 ## Source of truth
 
