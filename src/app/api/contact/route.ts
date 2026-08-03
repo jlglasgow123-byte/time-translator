@@ -7,9 +7,13 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
   const email = typeof body.email === 'string' ? body.email.trim() : ''
   const message = typeof body.message === 'string' ? body.message.trim() : ''
+  const summary = typeof body.summary === 'string' ? body.summary.trim() : ''
 
-  if (!email || !message) {
-    return NextResponse.json({ error: 'Please provide your email and a message.' }, { status: 400 })
+  if (!email || !message || !summary) {
+    return NextResponse.json({ error: 'Please provide your email, a summary and a message.' }, { status: 400 })
+  }
+  if (summary.length > 150) {
+    return NextResponse.json({ error: 'Summary is too long.' }, { status: 400 })
   }
   if (message.length > 5000) {
     return NextResponse.json({ error: 'Message is too long.' }, { status: 400 })
@@ -32,9 +36,10 @@ export async function POST(req: Request) {
       from: EMAIL_FROM,
       to: NOTIFY_EMAIL,
       reply_to: email,
-      subject: 'New message from Time Translator contact form',
+      subject: summary.replace(/[\r\n]+/g, ' '),
       html: `
         <p><strong>From:</strong> ${escape(email)}</p>
+        <p><strong>Summary:</strong> ${escape(summary)}</p>
         <p><strong>Message:</strong></p>
         <p>${escape(message).replace(/\n/g, '<br />')}</p>
       `,

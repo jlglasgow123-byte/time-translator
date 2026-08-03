@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 export default function ContactPage() {
   const [email, setEmail] = useState('')
+  const [summary, setSummary] = useState('')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -16,7 +17,7 @@ export default function ContactPage() {
     const res = await fetch('/api/contact', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, message }),
+      body: JSON.stringify({ email, summary, message }),
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
@@ -35,7 +36,11 @@ export default function ContactPage() {
           <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-[#3F7C85]">Contact</p>
           <h1 className="mt-2 text-4xl font-extrabold tracking-[-0.045em] text-[#26333A]">Tell us what you need.</h1>
           <p className="mt-3 text-base leading-7 text-[#66747A]">
-            Missing an integration, found a bug, or just want to say hi — send us a message and we&apos;ll get back to you.
+            Use this form to contact us about general information or ask a question.
+          </p>
+          <p className="mt-3 text-base leading-7 text-[#66747A]">
+            <span className="font-semibold text-[#26333A]">Did you know?</span> You can report bugs or request new
+            features using the &ldquo;?&rdquo; icon in the bottom right of the screen.
           </p>
         </div>
 
@@ -58,6 +63,21 @@ export default function ContactPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="mt-2 w-full rounded-xl border border-[#DCEEF5] bg-[#FBFBF8] px-4 py-3 text-sm text-[#26333A] outline-none focus:border-[#3F7C85]"
                   placeholder="you@example.com"
+                />
+              </div>
+              <div>
+                <label htmlFor="summary" className="block text-sm font-semibold text-[#26333A]">
+                  Summary
+                </label>
+                <input
+                  id="summary"
+                  type="text"
+                  required
+                  maxLength={150}
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[#DCEEF5] bg-[#FBFBF8] px-4 py-3 text-sm text-[#26333A] outline-none focus:border-[#3F7C85]"
+                  placeholder="What's this about?"
                 />
               </div>
               <div>
