@@ -3,9 +3,34 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { UNAUTHENTICATED_REQUESTS_PER_IP_PER_MINUTE } from '@/lib/security-limits'
 
+// Paths that must be reachable without a user session. Kept as a list rather
+// than a single chained condition: as one long line, /api/admin/error-alerts was
+// omitted when it was built, so Vercel cron got a 307 to /login every night for
+// weeks and the daily error digest never sent once.
+const PUBLIC_PREFIXES = [
+  '/login',
+  '/help',
+  '/auth/',
+  '/reset-password',
+  '/privacy',
+  '/terms',
+  '/contact',
+  '/api/contact',
+  '/api/events',
+  '/api/stripe/',
+  // Cron/webhook endpoints. These are NOT unauthenticated — each verifies a
+  // CRON_SECRET bearer token itself. They are listed here only so the session
+  // middleware does not redirect the caller before that check can run.
+  // ANY NEW CRON ROUTE MUST BE ADDED HERE OR IT WILL SILENTLY 307.
+  '/api/admin/atlassian-app-auth/callback',
+  '/api/admin/atlassian-report',
+  '/api/admin/security-report',
+  '/api/admin/error-alerts',
+]
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isPublic = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/help') || pathname.startsWith('/auth/') || pathname.startsWith('/reset-password') || pathname.startsWith('/api/events') || pathname.startsWith('/api/stripe/') || pathname.startsWith('/privacy') || pathname.startsWith('/terms') || pathname.startsWith('/contact') || pathname.startsWith('/api/contact') || pathname.startsWith('/api/admin/atlassian-app-auth/callback') || pathname.startsWith('/api/admin/atlassian-report') || pathname.startsWith('/api/admin/security-report')
+  const isPublic = pathname === '/' || PUBLIC_PREFIXES.some(p => pathname.startsWith(p))
   let supabaseResponse = NextResponse.next({ request })
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
