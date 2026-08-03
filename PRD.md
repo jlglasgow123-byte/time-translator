@@ -114,7 +114,7 @@ Desired order — each tier beats the next:
 
 ### 6.9 Admin & Observability (implemented)
 - Admin-only `/admin/system-events` (auth/import/Jira/AI/usage events, failures) and `/admin/billing`.
-- Sentry, structured app-event logging, `import_runs` + `import_event_traces` (90-day trace retention).
+- Structured app-event logging (`captureAppError` / `captureAppEvent` → `app_system_events`), daily Resend error digest, `import_runs` + `import_event_traces` (90-day trace retention).
 
 ### 6.10 Usage Limits & Billing groundwork (partially implemented)
 - Free trial: 200 AI matches/month. Paid single user: 5,000/month. AI ≤200/min/user. Unauth ≤60/min/IP.
@@ -134,7 +134,7 @@ Desired order — each tier beats the next:
 - **Backend:** Next.js API routes, Supabase (Auth + Postgres + RLS)
 - **AI:** Anthropic SDK (matching)
 - **Libraries:** `node-ical` (ICS), `luxon` (time/tz), `recharts` (charts), `@upstash/ratelimit` + Redis, `stripe`
-- **Ops:** Vercel hosting + Analytics, Sentry monitoring
+- **Ops:** Vercel hosting + Analytics; self-hosted monitoring via `app_system_events` + daily Resend digest (Sentry was removed 2026-06 — dev-server crashes and 197 packages for minimal benefit at this scale)
 - **Deploy:** push to `github.com/jlglasgow123-byte/time-translator` → Vercel → `timetranslator.com.au`
 
 ## 9. Roadmap
@@ -145,7 +145,9 @@ Desired order — each tier beats the next:
 - Confirm production migrations applied; `npm run security:check` + `npm run build` clean.
 - Verify Supabase Auth redirect allow-list (incl. `/reset-password`) and production env vars.
 - Hammer-test matching (duplicates, ignore/mapping rules, overrides persist, no dropped rows) and output correctness (Jira + CSV).
-- MFA on all operator accounts; spend/usage alerts on Vercel/Supabase/Anthropic/Sentry.
+- MFA on all operator accounts.
+- **Spend/usage caps:** Supabase (Cost Control cap) and Anthropic (workspace limit + notification threshold) configured 2026-07-12. Vercel deliberately deferred — its spend controls are weaker than the other two, and Hobby-tier usage at beta volume is low-risk. Revisit if traffic grows.
+- **Error alerting live:** `captureAppError` → `app_system_events` → `/admin/system-events`, plus a daily Resend email digest. Cadence is **daily, not real-time**, because Vercel Hobby only permits daily cron — accepted for beta. Tighter alerting needs an external scheduler (see backlog).
 
 ### P1 — Before wider launch
 - Complete Stripe (checkout, portal, webhooks, subscription-state handling) + user-facing billing.

@@ -93,7 +93,21 @@ export async function POST(req: NextRequest) {
       workEntries = result.workEntries
       jiraMatchesByWorkEntryId = result.jiraMatchesByWorkEntryId
     } catch (error) {
-      await refundAiUsage(user.id, period, events.length)
+      // Guarded so a failed refund cannot mask the error that actually broke matching.
+      try {
+        await refundAiUsage(user.id, period, events.length)
+      } catch (refundError) {
+        captureAppError(refundError, {
+          eventType: 'ai_usage_refund_failed',
+          userId: user.id,
+          requestId,
+          route: '/api/match-events',
+          action: 'refund_ai_usage',
+          status: 'failed',
+          errorCode: 'ai_usage_refund_failed',
+          details: { eventCount: events.length, refunded: events.length, trigger: 'match_failed' },
+        })
+      }
       captureAppError(error, {
         eventType: 'match_failed',
         userId: user.id,

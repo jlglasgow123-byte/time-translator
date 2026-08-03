@@ -33,12 +33,26 @@ export async function refundAiUsage(userId: string, period: string, amount: numb
     p_amount: amount,
   })
 
+  // Throw rather than swallow. A failed refund leaves the user charged AI quota they
+  // should have got back, against a capped monthly allowance — callers must be able to
+  // tell success from failure so they do not report a refund that never happened.
+  // Every caller is responsible for catching this: a refund failure must never fail the
+  // user's import.
   if (error) {
     console.error('[usage] failed to refund AI usage', {
       userId,
       period,
       amount,
       message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
     })
+    // The Postgres error code is carried in the message deliberately: captureAppError
+    // persists only `message`, and the code is what distinguishes a missing RPC or a
+    // permission failure (a deploy problem) from a transient network error when
+    // triaging from the daily digest. `cause` keeps the original for anything local.
+    const code = error.code ? ` [${error.code}]` : ''
+    throw new Error(`refund_ai_usage RPC failed${code}: ${error.message}`, { cause: error })
   }
 }

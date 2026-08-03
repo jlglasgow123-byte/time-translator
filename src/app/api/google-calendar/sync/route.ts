@@ -250,7 +250,25 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (error) {
-      if (!usageRefunded) await refundAiUsage(user.id, period, eventsToMatch)
+      // Guarded so a failed refund cannot mask the error that actually broke the sync,
+      // nor skip failImportRun below.
+      if (!usageRefunded) {
+        try {
+          await refundAiUsage(user.id, period, eventsToMatch)
+        } catch (refundError) {
+          captureAppError(refundError, {
+            eventType: 'ai_usage_refund_failed',
+            userId: user.id,
+            requestId,
+            importId: importRunId ?? undefined,
+            route: '/api/google-calendar/sync',
+            action: 'refund_ai_usage',
+            status: 'failed',
+            errorCode: 'ai_usage_refund_failed',
+            details: { eventsToMatch, refunded: eventsToMatch, trigger: 'match_failed' },
+          })
+        }
+      }
       if (importRunId) {
         try {
           await failImportRun(supabase, { importRunId, userId: user.id, error, errorCode: 'match_failed' })
