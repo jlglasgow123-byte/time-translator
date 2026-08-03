@@ -37,7 +37,15 @@ jobs:
           SECURITY_CHECK_OUTCOME: ${{ steps.security_check.outcome }}
           NPM_AUDIT_OUTCOME: ${{ steps.npm_audit.outcome }}
         run: |
-          curl -sf -X POST https://www.timetranslator.com.au/api/admin/security-report \
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET repository secret is empty or not set — cannot authenticate to the report endpoint."
+            exit 1
+          fi
+          # Capture body + status separately: `curl -sf` hides the response body,
+          # which let this step fail silently for weeks. Print the body on error.
+          response=$(mktemp)
+          status=$(curl -s -o "$response" -w '%{http_code}' \
+            -X POST https://www.timetranslator.com.au/api/admin/security-report \
             -H "Authorization: Bearer $CRON_SECRET" \
             -H "Content-Type: application/json" \
             -d "$(node -e '
@@ -57,7 +65,19 @@ jobs:
                 ],
               };
               process.stdout.write(JSON.stringify(body));
-            ')"
+            ')")
+          echo "Report endpoint returned HTTP $status"
+          if [ "$status" != "200" ]; then
+            echo "::error::Report endpoint returned HTTP $status. Response body:"
+            cat "$response"
+            echo
+            case "$status" in
+              401) echo "::error::401 Unauthorized — the CRON_SECRET GitHub secret does not match the CRON_SECRET env var in Vercel Production." ;;
+              500) echo "::error::500 — the route reached the email send and failed. Check the response body above and the Vercel function logs." ;;
+            esac
+            exit 1
+          fi
+          echo "Report email dispatched successfully."
 
       - name: Fail workflow if any check failed
         if: steps.security_check.outcome != 'success' || steps.npm_audit.outcome != 'success'
