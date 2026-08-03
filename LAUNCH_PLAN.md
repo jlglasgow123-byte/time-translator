@@ -24,7 +24,7 @@ The engine is **built**. The risk before launch is not "we need to build feature
 |---|---|---|
 | Stripe billing (checkout/portal/webhooks) | Built, never tested E2E in prod | Users cannot pay / double-charged / stuck — **kills paid launch** |
 | Billing entitlement enforcement | Built, never tested E2E | Trial/paid/blocked states wrong; revenue leak or lockout |
-| `RESEND_API_KEY` not configured | **Broken in prod right now** | `/contact` form + all alert/digest emails silently fail |
+| ~~`RESEND_API_KEY` not configured~~ | **Resolved 2026-08-03** — see backlog | Contact form + security report verified delivering; error digest still unobserved |
 | Import + matching flow | Not regression-tested since OAuth/parallelisation changes | Core product path could drop rows or mis-match |
 | Google Calendar live E2E | Now un-gated; never click-through tested live | Headline feature fails on first real user |
 | Xero CSV into real Xero | Never run through Xero's actual import | Export rejected by accounting software |
@@ -55,7 +55,7 @@ Every week runs a **Technical (T)** track and a **Marketing (M)** track in paral
 > **How this plan relates to the backlog:** `Logs/backlog.md` is the single source of truth for **technical** task status (it holds the full detail + test steps for each item). This plan covers **all** pre-launch activity — technical, marketing, and testing — sequenced by week. Where a **T** item here corresponds to a backlog entry, the **backlog owns its status**; this plan sequences and references it rather than re-tracking done/not-done. **Marketing/GTM lives only here**, never in the backlog. If a technical item's status is unclear, the backlog is authoritative.
 
 ### Guiding sequencing logic (technical)
-1. **Unblock what's silently broken first** — `RESEND_API_KEY` (emails dead in prod today).
+1. ~~**Unblock what's silently broken first** — `RESEND_API_KEY`.~~ **Done 2026-08-03** — email is live; the error digest is the one remaining unverified path.
 2. **De-risk the money path early** — Stripe + entitlements in Week 2, so there's time to fix breakage.
 3. **Verify the core product path** — import/matching, Google live, Jira history.
 4. **Verify the edges** — mobile, password reset, Xero-into-Xero.
@@ -72,7 +72,7 @@ Every week runs a **Technical (T)** track and a **Marketing (M)** track in paral
 > **Marketing is a slow-burn track from Week 1, not a Week-4 sprint.** Recruiting a beta cohort and warming the Facebook groups have their own lead time — the relationship-led founder audience does not respond to a launch-week push (see §6).
 
 ### Week 0 — This weekend (Thu 24 Jul – Sun 27 Jul) — "Stop the bleeding"
-- **T:** Configure **`RESEND_API_KEY`** end-to-end: sign up at resend.com, verify `timetranslator.com.au` sending domain (DNS), generate key, add to Vercel (Production), redeploy. Then confirm `/contact` sends a real email AND `gh workflow run weekly-security-report.yml` lands in the inbox. *(This unblocks the contact form, security report, error digests, AND the beta consent emails below.)*
+- **T:** ~~Configure **`RESEND_API_KEY`** end-to-end.~~ **DONE 2026-08-03** — see the backlog item for detail. Contact form and weekly security report both verified delivering; sending domain is the **`contact.` subdomain**, not the apex. Two follow-ups remain: the **error digest** has not yet been observed arriving, and the **beta consent emails** below are still unbuilt.
 - **T:** Confirm the Google sensitive-scope approval is fully live: check the OAuth consent screen shows "In production / verified", and that a **non-test-user** Google account can complete the connect flow.
 - **M:** Decide the launch messaging spine (Phase-1 freelancer framing). Draft the one-line value prop and the 3 core benefits for the landing hero.
 
@@ -141,7 +141,7 @@ Nothing here ships to public launch until every line is ✅ or a consciously-acc
 **Access + trust**
 - [ ] Password reset E2E; `/reset-password` in redirect allow-list
 - [ ] Mobile E2E on a real device
-- [ ] `RESEND_API_KEY` live — contact form + digests + consent emails send
+- [x] `RESEND_API_KEY` live — contact form + security report verified 2026-08-03 *(error digest + consent emails still to confirm)*
 - [ ] MFA on operator accounts; Supabase + Anthropic spend caps set
 
 **Build gate**
@@ -207,7 +207,7 @@ The soft-marketing traction already built in Facebook groups gives us **two dist
 ## 7. Top risks
 
 1. **"Done in code" ≠ "works in prod."** Half the backlog is exactly this. The **Xero-CSV-into-real-Xero** check and **Stripe-in-prod** are the two most likely to bite — both scheduled early (Weeks 2–3) for that reason.
-2. **Blind to errors until Resend is live.** Until `RESEND_API_KEY` is configured, a launch-day failure is invisible. Non-negotiable Week-0/1 item — verify it actually landed.
+2. **Still partly blind to errors.** Resend is live as of 2026-08-03, so the contact form and weekly security report now reach the inbox. But the **daily error digest has never been observed arriving** — and because it only sends when error rows exist, silence is ambiguous rather than reassuring. Until it is deliberately triggered and confirmed, a launch-day failure could still go unnoticed for up to a day. Also watch Microsoft 365 Junk/quarantine: alert mail sent from the `contact.` subdomain to the same-domain apex mailbox has been filtered before.
 3. **No go-to-market motion yet.** Not a blocker to *launching*, but a blocker to launch *mattering*. Don't let verification eat the marketing track (§6).
 4. **Google Calendar live check still owed.** The scope is approved and the flow is the primary path, but it still needs one real end-to-end run for a non-test user (consent → sync → refresh-on-expiry → disconnect revokes). Confirm it in the beta before founders arrive — that's what the beta is for.
 
