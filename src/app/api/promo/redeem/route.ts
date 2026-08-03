@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { EMAIL_FROM } from '@/lib/email-from'
 
 const MILESTONE_COUNTS = [100, 200, 300]
 const NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL ?? 'contact@timetranslator.com.au'
@@ -16,7 +17,7 @@ async function sendMilestoneEmail(count: number, codeName: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Time Translator <noreply@timetranslator.com.au>',
+      from: EMAIL_FROM,
       to: NOTIFY_EMAIL,
       subject: `🎉 ${count} people have used your ${codeName} promo code!`,
       html: `

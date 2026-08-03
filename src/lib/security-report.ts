@@ -1,3 +1,5 @@
+import { EMAIL_FROM } from '@/lib/email-from'
+
 const SITE_URL = 'https://www.timetranslator.com.au'
 const NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL ?? 'contact@timetranslator.com.au'
 
@@ -109,7 +111,7 @@ export async function sendSecurityReportEmail(report: SecurityReport) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Time Translator <noreply@timetranslator.com.au>',
+      from: EMAIL_FROM,
       to: NOTIFY_EMAIL,
       subject: hasFailures
         ? '⚠️ Weekly Security Report — action needed'

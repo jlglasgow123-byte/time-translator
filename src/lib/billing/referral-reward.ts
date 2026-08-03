@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { EMAIL_FROM } from '@/lib/email-from'
 
 const REWARD_DAYS = 30
 const NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL ?? 'contact@timetranslator.com.au'
@@ -14,7 +15,7 @@ async function sendReferralRewardEmail(referrerEmail: string) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Time Translator <noreply@timetranslator.com.au>',
+      from: EMAIL_FROM,
       to: referrerEmail,
       bcc: NOTIFY_EMAIL,
       subject: 'You referred a friend — enjoy another month on us!',

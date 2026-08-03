@@ -1,4 +1,5 @@
 import { createServiceClient } from '@/lib/supabase/service'
+import { EMAIL_FROM } from '@/lib/email-from'
 
 const NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL ?? 'contact@timetranslator.com.au'
 // Vercel Hobby cron only supports daily invocations, so this runs once/day and
@@ -51,7 +52,7 @@ async function sendErrorAlertEmail(events: SystemEventRow[]) {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: 'Time Translator <noreply@timetranslator.com.au>',
+      from: EMAIL_FROM,
       to: NOTIFY_EMAIL,
       subject: `⚠️ ${events.length} production error${events.length === 1 ? '' : 's'} — Time Translator`,
       html: renderEmailHtml(events),

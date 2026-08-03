@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { EMAIL_FROM } from '@/lib/email-from'
 
 const NOTIFY_EMAIL = process.env.ADMIN_NOTIFY_EMAIL ?? 'contact@timetranslator.com.au'
 
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'Time Translator <noreply@timetranslator.com.au>',
+      from: EMAIL_FROM,
       to: NOTIFY_EMAIL,
       reply_to: email,
       subject: 'New message from Time Translator contact form',
