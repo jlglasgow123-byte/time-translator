@@ -5,7 +5,7 @@ import { UNAUTHENTICATED_REQUESTS_PER_IP_PER_MINUTE } from '@/lib/security-limit
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const isPublic = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/help') || pathname.startsWith('/auth/') || pathname.startsWith('/reset-password') || pathname.startsWith('/api/events') || pathname.startsWith('/api/stripe/') || pathname.startsWith('/privacy') || pathname.startsWith('/terms') || pathname.startsWith('/api/admin/atlassian-app-auth/callback') || pathname.startsWith('/api/admin/atlassian-report') || pathname.startsWith('/api/admin/security-report')
+  const isPublic = pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/help') || pathname.startsWith('/auth/') || pathname.startsWith('/reset-password') || pathname.startsWith('/api/events') || pathname.startsWith('/api/stripe/') || pathname.startsWith('/privacy') || pathname.startsWith('/terms') || pathname.startsWith('/contact') || pathname.startsWith('/api/contact') || pathname.startsWith('/api/admin/atlassian-app-auth/callback') || pathname.startsWith('/api/admin/atlassian-report') || pathname.startsWith('/api/admin/security-report')
   let supabaseResponse = NextResponse.next({ request })
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY

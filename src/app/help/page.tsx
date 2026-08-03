@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 const quickStart = [
   {
     step: '1. Start with your calendar',
@@ -142,6 +144,15 @@ export default function HelpPage() {
               </div>
             ))}
           </dl>
+        </section>
+
+        <section className="rounded-[32px] border border-[#DCEEF5] bg-white/90 p-6 shadow-[0_18px_48px_rgba(38,51,58,0.06)]">
+          <h2 className="text-lg font-extrabold tracking-[-0.025em] text-[#26333A]">Still stuck?</h2>
+          <p className="mt-2 text-sm leading-6 text-[#66747A]">
+            If your question is not answered above,{' '}
+            <Link href="/contact" className="font-semibold text-[#3F7C85] hover:underline">get in touch</Link>
+            {' '}and we will help. You do not need to be signed in.
+          </p>
         </section>
       </div>
     </div>

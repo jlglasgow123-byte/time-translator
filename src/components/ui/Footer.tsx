@@ -44,6 +44,7 @@ export function Footer() {
             <div className="flex flex-col gap-3">
               <p className="text-xs font-semibold uppercase tracking-widest text-[#26333A]">Contact</p>
               <div className="flex flex-col gap-2.5 text-sm text-[#66747A]">
+                <Link href="/contact" className="hover:text-[#26333A] transition-colors">Contact us</Link>
                 <a href="mailto:contact@timetranslator.com.au" className="hover:text-[#26333A] transition-colors">
                   contact@timetranslator.com.au
                 </a>

@@ -15,6 +15,7 @@ const privateLinks = [
 
 const publicLinks = [
   { href: '/help', label: 'Help' },
+  { href: '/contact', label: 'Contact' },
 ]
 
 export function Nav() {
@@ -85,16 +86,28 @@ export function Nav() {
             </Link>
           ))}
           {signedIn && (
-            <Link
-              href="/help"
-              className={`text-sm transition-colors ${
-                pathname === '/help'
-                  ? 'text-[#3F7C85] font-medium'
-                  : 'text-gray-500 hover:text-[#3F7C85]'
-              }`}
-            >
-              Help
-            </Link>
+            <>
+              <Link
+                href="/help"
+                className={`text-sm transition-colors ${
+                  pathname === '/help'
+                    ? 'text-[#3F7C85] font-medium'
+                    : 'text-gray-500 hover:text-[#3F7C85]'
+                }`}
+              >
+                Help
+              </Link>
+              <Link
+                href="/contact"
+                className={`text-sm transition-colors ${
+                  pathname === '/contact'
+                    ? 'text-[#3F7C85] font-medium'
+                    : 'text-gray-500 hover:text-[#3F7C85]'
+                }`}
+              >
+                Contact
+              </Link>
+            </>
           )}
           {!signedIn && (
             <>
