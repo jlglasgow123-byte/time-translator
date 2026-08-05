@@ -118,10 +118,13 @@ function SettingsInner() {
       prefsFirstSaveRef.current = false
       return
     }
-    // Flash a "Saved" tick so the change is visibly acknowledged.
-    setPrefsSaved(true)
+    // Flash a "Saved" tick so the change is visibly acknowledged. Clearing it
+    // first means a second edit within the 2s window re-runs the fade rather
+    // than sitting there already-visible with no new confirmation.
+    setPrefsSaved(false)
+    const show = requestAnimationFrame(() => setPrefsSaved(true))
     const timer = setTimeout(() => setPrefsSaved(false), 2000)
-    return () => clearTimeout(timer)
+    return () => { cancelAnimationFrame(show); clearTimeout(timer) }
   }, [prefsInitialized, defaultProjectKey, timezone, includedIssueTypes])
 
   function toggleIssueType(issueType: string) {
@@ -402,15 +405,23 @@ function SettingsInner() {
               <h2 className="text-sm font-semibold text-gray-900 mb-1">Preferences</h2>
               <p className="text-xs text-gray-500">Changes save automatically — no need to press anything.</p>
             </div>
-            <span
-              aria-live="polite"
-              className={`flex shrink-0 items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 transition-opacity duration-300 ${prefsSaved ? 'opacity-100' : 'opacity-0'}`}
-            >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M3.5 8.5l3 3 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              Saved
-            </span>
+            {/* The live region is always present; only its text comes and goes.
+                Screen readers announce on a text change, not a style change, so
+                fading a permanently-rendered "Saved" via opacity would announce
+                nothing — and would leave the word readable to a screen reader
+                even when nothing had been saved. */}
+            <div role="status" aria-live="polite" className="shrink-0">
+              <span className="sr-only">{prefsSaved ? 'Preferences saved.' : ''}</span>
+              <span
+                aria-hidden="true"
+                className={`flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 transition-opacity duration-300 ${prefsSaved ? 'opacity-100' : 'opacity-0'}`}
+              >
+                <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3.5 8.5l3 3 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Saved
+              </span>
+            </div>
           </div>
           <div className="space-y-4">
             <div>
@@ -542,6 +553,13 @@ function SettingsInner() {
             <p className="mt-3 text-sm text-[#66747A]">
               You have used {aiCalls}/{limit === Infinity ? '∞' : limit} AI matches.
               {tier === 'free_trial' && ' If you hit the limit, you\'ll need to upgrade to Time Translator Pro.'}
+            </p>
+
+            <p className="mt-2 text-sm text-[#66747A]">
+              Only AI matches count towards this total. Matches made using Time Translator
+              rules are always free — that includes a Jira key in the event title, your own
+              mapping rules, and events you&apos;ve logged before. Re-importing the same
+              calendar usually costs nothing.
             </p>
 
             {entitlement && !entitlement.canUseAi && entitlement.reason && (

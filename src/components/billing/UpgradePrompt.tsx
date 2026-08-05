@@ -139,7 +139,7 @@ function PricingModal({ open, onClose }: { open: boolean; onClose: () => void })
   const maxPrice = annual ? 'A$150/yr' : 'A$15/mo'
 
   return (
-    <Modal open={open} onClose={onClose} title="Choose your plan" maxWidthClassName="max-w-2xl">
+    <Modal open={open} onClose={onClose} title="Choose your plan" maxWidthClassName="max-w-2xl" hideFooter>
       {/* Toggle */}
       <div className="mb-6 flex flex-col items-center gap-2">
         <div className="inline-flex items-center rounded-full border border-[#DCEEF5] bg-[#FBFBF8] p-1">
@@ -166,13 +166,8 @@ function PricingModal({ open, onClose }: { open: boolean; onClose: () => void })
 
       <div className="grid gap-4 sm:grid-cols-2">
         {/* Pro */}
-        <div className="relative flex flex-col rounded-[20px] border-2 border-[#3F7C85] bg-white p-6 shadow-[0_8px_32px_rgba(63,124,133,0.14)]">
-          <div className="absolute -top-3 left-5">
-            <span className="rounded-full bg-[#3F7C85] px-3 py-0.5 text-xs font-extrabold uppercase tracking-[0.12em] text-white">
-              Most popular
-            </span>
-          </div>
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#3F7C85]">Pro</p>
+        <div className="flex flex-col rounded-[20px] border border-[#DCEEF5] bg-[#FBFBF8] p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#66747A]">Pro</p>
           <div className="mt-2 flex items-baseline gap-1">
             <span className="text-3xl font-extrabold tracking-[-0.04em] text-[#26333A]">{annual ? 'A$50' : 'A$5'}</span>
             <span className="text-sm text-[#66747A]">{annual ? '/year' : '/month'}</span>
@@ -189,7 +184,7 @@ function PricingModal({ open, onClose }: { open: boolean; onClose: () => void })
               type="button"
               onClick={() => handleCheckout('pro')}
               disabled={proLoading || maxLoading}
-              className="w-full rounded-full bg-[#3F7C85] px-4 py-2.5 text-sm font-bold text-white shadow-[0_4px_16px_rgba(63,124,133,0.24)] transition hover:bg-[#356D75] disabled:opacity-60"
+              className="w-full rounded-full border border-[#3F7C85] bg-white px-4 py-2.5 text-sm font-bold text-[#3F7C85] transition hover:bg-[#F1F8FA] disabled:opacity-60"
             >
               {proLoading ? 'Redirecting…' : `Get Pro — ${proPrice}`}
             </button>
