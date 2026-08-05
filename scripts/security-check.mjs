@@ -57,6 +57,36 @@ if (existsSync(join(root, callbackPath))) {
   }
 }
 
+// The Jira typeahead routes hit the user's own Jira on every keystroke, so each
+// must gate on auth *and* rate limit. Both previously wrapped the limit in
+// `if (user)`, which read as optional and would have become a real bypass if
+// getJiraCreds ever gained a service-client path. Enforce the shape instead.
+for (const lookupRoute of ['src/app/api/jira/search/route.ts', 'src/app/api/jira/projects/route.ts']) {
+  if (!existsSync(join(root, lookupRoute))) continue
+  const text = read(lookupRoute)
+  if (!text.includes('isCredsError(creds)')) {
+    fail(`${lookupRoute}: Jira lookup routes must reject unauthenticated callers via getJiraCreds`)
+  }
+  if (!text.includes('guardJiraLookup')) {
+    fail(`${lookupRoute}: Jira lookup routes must rate limit via guardJiraLookup`)
+  }
+  if (/if \(user\) \{/.test(text)) {
+    fail(`${lookupRoute}: rate limiting must not be conditional on a separately-fetched user`)
+  }
+}
+
+// Rate limiting fails closed (Project_Model.md §6, 2026-08-05). checkRateLimit
+// throws when Upstash is unreachable; callers must use the Safe variant so the
+// outage becomes a logged 503 rather than a bare unlogged 500.
+const failClosedCallers = ['src/middleware.ts', 'src/lib/jira-lookup-guard.ts']
+for (const caller of failClosedCallers) {
+  if (!existsSync(join(root, caller))) continue
+  const text = read(caller)
+  if (/[^eS]checkRateLimit\(/.test(text)) {
+    fail(`${caller}: use checkRateLimitSafe so an Upstash outage fails closed with a logged 503`)
+  }
+}
+
 if (failures.length) {
   console.error('Security check failed:\n')
   for (const item of failures) console.error(`- ${item}`)

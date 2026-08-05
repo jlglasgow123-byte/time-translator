@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimitSafe } from '@/lib/rate-limit'
+import { captureAppError } from '@/lib/observability'
 import { UNAUTHENTICATED_REQUESTS_PER_IP_PER_MINUTE } from '@/lib/security-limits'
 
 // Paths that must be reachable without a user session. Kept as a list rather
@@ -74,12 +75,31 @@ export async function middleware(request: NextRequest) {
   if (!user) {
     const forwardedFor = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     const ip = forwardedFor || request.headers.get('x-real-ip') || 'unknown'
-    const limit = await checkRateLimit(`unauth:${ip}`, UNAUTHENTICATED_REQUESTS_PER_IP_PER_MINUTE, 60)
+    const outcome = await checkRateLimitSafe(`unauth:${ip}`, UNAUTHENTICATED_REQUESTS_PER_IP_PER_MINUTE, 60)
 
-    if (!limit.allowed) {
+    if (outcome.status === 'limited') {
       return NextResponse.json(
         { error: 'Too many requests. Please try again soon.' },
         { status: 429 }
+      )
+    }
+
+    // Fail closed (Project_Model.md §6, 2026-08-05). This runs on every
+    // unauthenticated request, so an unguarded throw here previously meant an
+    // Upstash outage took down the whole site — including the login page — with
+    // a bare 500 and no record of why.
+    if (outcome.status === 'unavailable') {
+      captureAppError(outcome.error, {
+        eventType: 'rate_limit_unavailable',
+        route: pathname,
+        action: 'check_rate_limit',
+        status: 'failed',
+        errorCode: 'rate_limit_unavailable',
+        details: { scope: 'unauthenticated' },
+      })
+      return NextResponse.json(
+        { error: 'Service is temporarily unavailable. Please try again shortly.' },
+        { status: 503 }
       )
     }
   }
