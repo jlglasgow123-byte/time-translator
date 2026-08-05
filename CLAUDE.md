@@ -26,6 +26,15 @@ Before creating any new file, **look for the existing home first.** If Jasmine s
 
 When the launch plan and the backlog both touch a technical task, the **backlog owns the status** and the plan points to it — never maintain the same task status in two files.
 
+## Communication style — plain English, no code jargon
+
+Jasmine did not write any of the code in this project and doesn't know what a `.ts`, `.mjs`, file diff, or function name means. This is not limited to summaries or changelists — **it governs ALL communication with her, every response, in every context**: explanations, status updates, answers to questions, error descriptions, plans, anything said out loud in the conversation.
+
+**Never describe anything in terms of code artifacts** (file names, line counts, function/variable names, framework/library terms, diff stats) unless she's specifically asking about code structure itself. Instead, describe everything in **real-world, plain-English prose**: what it means for a user or for the business, what problem it fixes or causes, what to watch out for. Write it the way you'd explain it to a smart non-technical colleague — in every message, not just recaps.
+
+- Bad: `Stripe: webhook (+159), checkout (+89), portal (+83)`
+- Good: `Fixed a silent bug where a customer could pay but never get upgraded (or cancel but keep access forever), with no record of it happening.`
+
 ## Source of truth
 
 `PRD.md` (product intent) and `Project_Model.md` (process, scope, standards, decisions) are the shared source of truth. Read them before non-trivial work. Every accepted decision must be recorded in `Project_Model.md` — an accepted decision that isn't recorded doesn't count as done.

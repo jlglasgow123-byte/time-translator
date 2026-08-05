@@ -43,6 +43,10 @@ export default function ConfirmPage() {
 
   const totalSeconds = toLog.reduce((s, e) => s + e.durationSeconds, 0)
 
+  // Entries with no Jira key can't be logged — Jira rejects them one by one with an
+  // unhelpful error. Catch it here and say what to do instead.
+  const missingKeyCount = toLog.filter(e => !jiraMatchesByWorkEntryId[e.id]?.suggestedJiraKey).length
+
   async function handleLogAll() {
     setPhase('logging')
     for (const entry of toLog) {
@@ -105,9 +109,15 @@ export default function ConfirmPage() {
             <div className="flex flex-col items-end gap-1">
               <div className="flex gap-3">
                 <Button variant="secondary" onClick={() => router.push('/review')}>← Back to Review</Button>
-                <Button onClick={handleLogAll} disabled={!toLog.length}>Log all to Jira</Button>
+                <Button onClick={handleLogAll} disabled={!toLog.length || missingKeyCount > 0}>Log all to Jira</Button>
               </div>
               <p className="text-xs text-gray-400">To make changes to your time, return to the Review page.</p>
+              {missingKeyCount > 0 && (
+                <p className="max-w-sm text-right text-xs font-medium text-amber-700">
+                  {missingKeyCount} {missingKeyCount === 1 ? 'entry has' : 'entries have'} no Jira ticket.
+                  Go back to Review to set them, or skip them.
+                </p>
+              )}
             </div>
           )}
           {phase === 'done' && (

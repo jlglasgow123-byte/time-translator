@@ -1,14 +1,8 @@
-export const TIER_AI_MONTHLY_LIMITS: Record<string, number> = {
-  free: 200,
-  free_trial: 200,
-  trial: 200,
-  paid: 5000,
-  paid_single_user: 5000,
-  single_user: 5000,
-  pro: 5000,
-  enterprise: Infinity,
-}
-
+// Monthly AI limits per tier live in src/lib/billing/entitlements.ts, as part of
+// getUserEntitlement() — deliberately NOT duplicated here. A TIER_AI_MONTHLY_LIMITS
+// table and a tierAiMonthlyLimit() helper used to sit in this file; both were removed
+// 2026-08-05 because nothing read them and the table had drifted (no max_power row, so
+// a Max Power tier looked up there would have silently got the 200 free-tier limit).
 export const AI_CALLS_PER_MINUTE_PER_USER = 200
 // Keep below Vercel's 4.5 MB function payload limit after multipart overhead.
 export const MAX_ICS_FILE_BYTES = 4 * 1024 * 1024
@@ -22,10 +16,6 @@ export const JIRA_LOOKUPS_PER_MINUTE_PER_USER = 60
 // Jira's project search is a substring match over key and name, so a query longer
 // than this is a stuck client rather than a real search. Truncated, not rejected.
 export const MAX_JIRA_PROJECT_QUERY_LENGTH = 100
-
-export function tierAiMonthlyLimit(tier: string | null | undefined) {
-  return TIER_AI_MONTHLY_LIMITS[tier ?? 'free'] ?? TIER_AI_MONTHLY_LIMITS.free
-}
 
 export function formatBytes(bytes: number) {
   if (bytes >= 1024 * 1024) return `${Math.round(bytes / 1024 / 1024)} MB`

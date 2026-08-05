@@ -19,8 +19,9 @@
  * KNOWN LIMITATION: this is plain JavaScript and the billing rules are TypeScript, so
  * the entitlement logic below is a hand-copied MIRROR of getUserEntitlement(). It has
  * drifted once already and produced a passing test that asserted the opposite of real
- * behaviour. Re-check the mirror whenever billing logic changes — the drift guard in
- * section 3 only compares the limit constants and cannot catch a control-flow change.
+ * behaviour. Re-check the mirror whenever billing logic changes — section 3's guards
+ * only compare the limit constants and watch for a duplicate limits table; neither can
+ * catch a control-flow change, which is what the drift actually was.
  * See Project_Model.md §6, decision of 2026-08-05.
  */
 
@@ -52,16 +53,6 @@ for (const file of ['.env.local', '.env']) {
 let passed = 0
 const failures = []
 const skipped = []
-const notes = []
-
-// A NOTE is something true but not a failure — it must still appear in the summary
-// tally, or a clean-looking "N passed, 0 failed" hides that the run saw something.
-function note(text, detail) {
-  notes.push(text)
-  console.log(`  NOTE ${text}`)
-  if (detail) for (const line of detail.split('\n')) console.log(`       ${line}`)
-}
-
 function ok(name, detail) {
   passed++
   console.log(`  [32mPASS[0m ${name}${detail ? ` — ${detail}` : ''}`)
@@ -89,7 +80,7 @@ function section(title) {
 // `@/` path aliases, so it cannot be imported by plain node; keeping a mirror
 // here means the expectations below are asserted against explicit rules.
 // If entitlements.ts changes, this mirror must change with it — the drift guard
-// in section 2 compares the limit constants to catch the common case.
+// in section 3 compares the limit constants to catch the common case.
 const FREE_TRIAL_AI_MONTHLY_LIMIT = 200
 const PAID_SINGLE_USER_AI_MONTHLY_LIMIT = 5000
 const MAX_POWER_AI_MONTHLY_LIMIT = 50000
@@ -247,29 +238,32 @@ for (const [name, expected] of [
   if (actual === expected) ok(`entitlements.ts ${name} = ${expected}`)
   else fail(`entitlements.ts ${name}`, `this script expects ${expected}, source says ${actual} — update scripts/billing-check.mjs`)
 }
-const paidInLimitsTable = limitsSrc.match(/paid_single_user:\s*(\d+)/)
-if (paidInLimitsTable && Number(paidInLimitsTable[1]) === PAID_SINGLE_USER_AI_MONTHLY_LIMIT) {
-  ok('security-limits.ts TIER_AI_MONTHLY_LIMITS agrees with entitlements.ts for Pro')
+// The tier limits must live in exactly ONE place. A second table of them existed in
+// security-limits.ts until 2026-08-05 and had already drifted (no max_power row), so
+// this guards against a duplicate reappearing rather than against it disagreeing.
+//
+// Matches the SHAPE of a tier-limit table — a tier name mapped to a number — rather
+// than the two deleted identifiers, because the likely way this recurs is somebody
+// re-adding the same table under a different name, which a name-matched guard misses.
+// Block comments are stripped as well as line comments: security-limits.ts documents
+// why the table was removed, and matching that prose would fire the guard on its own
+// explanation.
+const limitsCode = limitsSrc
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n')
+  .filter(l => !l.trim().startsWith('//'))
+  .join('\n')
+const TIER_KEYS = ['free_trial', 'max_power', 'paid_single_user', 'single_user', 'trial']
+const tierLimitRow = new RegExp(`(?:${TIER_KEYS.join('|')})\\s*:\\s*(?:\\d+|Infinity)`)
+const duplicateShape = limitsCode.match(tierLimitRow)
+const duplicateByName = limitsCode.match(/TIER_AI_MONTHLY_LIMITS|tierAiMonthlyLimit/)
+if (!duplicateShape && !duplicateByName) {
+  ok('security-limits.ts contains no tier-name-to-number mapping (tier limits live only in entitlements.ts)')
 } else {
-  fail('security-limits.ts / entitlements.ts Pro limit mismatch',
-    `security-limits says ${paidInLimitsTable?.[1]}, entitlements says ${PAID_SINGLE_USER_AI_MONTHLY_LIMIT}`)
-}
-// TIER_AI_MONTHLY_LIMITS has no max_power row, but NOTHING IN PRODUCTION READS IT —
-// every real limit comes from entitlement.monthlyAiLimit (entitlements.ts:118), which
-// handles max_power correctly. So this is unused leftover config, not a live bug: no
-// customer is affected. It is only a trap for whoever reaches for that table next.
-// Reported as a NOTE, not a failure, so it cannot mask a real problem in this output.
-// Scoped to `max_power: <number>` and the value is compared, so this cannot pass on the
-// word merely appearing somewhere in the file (a comment, an unrelated constant).
-const maxPowerRow = limitsSrc.match(/max_power:\s*(\d+)/)
-if (maxPowerRow && Number(maxPowerRow[1]) === MAX_POWER_AI_MONTHLY_LIMIT) {
-  ok(`security-limits.ts TIER_AI_MONTHLY_LIMITS max_power = ${MAX_POWER_AI_MONTHLY_LIMIT}`)
-} else if (maxPowerRow) {
-  fail('security-limits.ts TIER_AI_MONTHLY_LIMITS max_power has the wrong value',
-    `table says ${maxPowerRow[1]}, entitlements.ts says ${MAX_POWER_AI_MONTHLY_LIMIT}`)
-} else {
-  note('security-limits.ts TIER_AI_MONTHLY_LIMITS has no max_power row (and a stale',
-    'enterprise row). Unused config — nothing in production reads it, so no customer\nis affected. Safe to delete the table and tierAiMonthlyLimit() entirely.')
+  fail('a second copy of the tier AI limits appears to have reappeared in security-limits.ts',
+    `matched ${JSON.stringify((duplicateShape ?? duplicateByName)[0])}. The removed ` +
+    'TIER_AI_MONTHLY_LIMITS table had drifted from entitlements.ts and would have given ' +
+    'Max Power users the 200 free-tier limit. Tier limits belong in entitlements.ts only.')
 }
 
 // The advertised prices, from src/components/billing/UpgradePrompt.tsx:138-139 (and
@@ -306,7 +300,11 @@ const upgradeSrc = readFileSync(join(ROOT, 'src/components/billing/UpgradePrompt
 const savingClaims = [...upgradeSrc.matchAll(/Save A\$(\d+)\/yr/g)].map(m => Number(m[1]))
 const claimsTwoMonths = /two months on us/i.test(upgradeSrc)
 
-// One "Save A$N/yr" claim per annual plan, in the order the plans are rendered.
+// One "Save A$N/yr" claim per annual plan. NOTE the pairing is POSITIONAL: the Nth
+// claim in the source is matched to the Nth annual plan in PRICE_VARS. Reordering the
+// plan cards in the JSX would mis-pair them — today that fails loudly because the two
+// savings differ (A$10 vs A$30), but it would go silent if both plans ever saved the
+// same amount. Match on plan name here if that changes.
 const annualPlans = PRICE_VARS.filter(p => p.interval === 'year')
 if (savingClaims.length !== annualPlans.length) {
   fail('could not read the advertised annual savings from UpgradePrompt.tsx',
@@ -453,14 +451,22 @@ console.log(`
        Settings should show the same. A payment that does not raise the limit is
        the bug this step exists to catch.
 
-  3. Pro calendar limit — try to link a second calendar.
-       -> 403 "limited to one linked calendar"
-     Then import an .ics from a calendar that is not the linked one.
-       -> 400 "upgrade to Max Power"
+  3. Pro calendar limit. READ BOTH PARTS BEFORE YOU CLICK — the order matters and
+     the first calendar cannot be undone on Pro.
+     3a. Link your FIRST calendar. This should SUCCEED. The limit is "one linked
+         calendar", not "none", so there is nothing to test until one exists.
+         Be aware: a Pro account CANNOT unlink a calendar afterwards (403,
+         support-only). Pick the one you actually want, or do this on an account
+         you are happy to throw away.
+     3b. Now try to link a SECOND calendar.
+         -> 403 "limited to one linked calendar"
+     3c. Import an .ics whose calendar name is not the linked one. (Needs an .ics
+         that carries a calendar name; a file without one skips this check.)
+         -> 400 "upgrade to Max Power"
 
   4. Max Power monthly (A$15) — upgrade again from the same account.
        subscription_tier and tier -> max_power, limit -> 50000
-     Linking a second calendar should now be allowed.
+     Linking a second calendar should now be allowed, and unlinking works again.
 
   5. Cancel through the billing portal. This is the path most likely to be broken,
      because it is the one nobody clicks while building. After cancelling:
@@ -468,7 +474,12 @@ console.log(`
        subscription_tier         free_trial
        tier                      free_trial
        stripe_subscription_id    null
-     AI matching should stop once subscription_current_period_end has passed.
+     AI matching stops IMMEDIATELY, not at the end of the paid period. The cancel
+     handler sets tier back to free_trial, and a free_trial tier with a canceled
+     status reads as trial_expired — so do not sit waiting for
+     subscription_current_period_end to pass. (That field is not written by the
+     cancel handler at all. It only governs the past_due grace period, which this
+     checklist cannot reach with a real card.)
 
   6. Clean up: refund the charges in the Stripe dashboard (Stripe keeps the
      processing fee, roughly A$0.39 per charge — that is expected and not
@@ -509,10 +520,12 @@ console.log(`
 
   Billing portal:
     POST /api/stripe/portal with no stripe_customer_id -> 400 "No billing account found"
+    Use a DIFFERENT account that has never paid — by step 5 the test account has a
+    stripe_customer_id, so it cannot exercise this branch.
 `)
 
 section('Summary')
-console.log(`  ${passed} passed, ${failures.length} failed, ${skipped.length} skipped, ${notes.length} notes`)
+console.log(`  ${passed} passed, ${failures.length} failed, ${skipped.length} skipped`)
 if (failures.length) {
   console.log('\n  Failures:')
   for (const f of failures) console.log(`   - ${f}`)

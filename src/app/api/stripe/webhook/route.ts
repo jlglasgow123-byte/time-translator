@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { applyReferralReward } from '@/lib/billing/referral-reward'
 import { captureAppError, captureAppEvent, requestIdFromHeaders } from '@/lib/observability'
 
@@ -65,7 +65,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  const supabase = await createClient()
+  // SERVICE-ROLE client, deliberately. Stripe's POST carries no Supabase session
+  // cookie, so under the request-scoped anon client `auth.uid()` is null and RLS
+  // filters every `profiles` row out — the UPDATE then returns HTTP 200 with zero rows
+  // and NO error, which is indistinguishable from success. Verified against the live
+  // database on 2026-08-05. This is the same defect that left `import_run_analytics`
+  // empty for weeks (see Project_Model.md §6). Do not change this back to createClient().
+  const supabase = createServiceClient()
 
   // Supabase returns errors in the result object rather than throwing, so an
   // unchecked `await supabase.from('profiles').update(...)` fails silently. On this
@@ -77,7 +83,15 @@ export async function POST(request: NextRequest) {
     match: { column: 'user_id' | 'stripe_customer_id'; value: string },
     context: { errorCode: string; userId?: string }
   ): Promise<boolean> {
-    const { error } = await supabase.from('profiles').update(update).eq(match.column, match.value)
+    // `.select()` is load-bearing: an UPDATE matching no row is NOT an error, so
+    // checking `error` alone cannot tell "wrote it" from "wrote nothing". We need the
+    // affected-row count to know the entitlement actually changed.
+    const { data, error } = await supabase
+      .from('profiles')
+      .update(update)
+      .eq(match.column, match.value)
+      .select('user_id')
+
     if (error) {
       captureAppError(error, {
         eventType: 'stripe_profile_update_failed',
@@ -97,6 +111,29 @@ export async function POST(request: NextRequest) {
       })
       return false
     }
+
+    if (!data || data.length === 0) {
+      // No error, but nothing was written. Either the profile does not exist or a
+      // policy filtered it out. For a paid event this means the customer's money moved
+      // and their entitlement did not — it must never pass as success.
+      captureAppEvent('Stripe entitlement write matched no profile row', 'error', {
+        eventType: 'stripe_profile_update_no_rows',
+        userId: context.userId,
+        requestId,
+        route: ROUTE,
+        action: 'stripe_apply_subscription_state',
+        status: 'failed',
+        errorCode: `${context.errorCode}_no_rows`,
+        details: {
+          stripeEventType: event.type,
+          stripeEventId: event.id,
+          matchedOn: match.column,
+          fields: Object.keys(update).join(','),
+        },
+      })
+      return false
+    }
+
     return true
   }
 

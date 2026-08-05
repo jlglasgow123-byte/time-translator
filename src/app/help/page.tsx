@@ -93,6 +93,10 @@ const faqs = [
     a: 'The free trial includes 200 AI matches. The paid single-user plan includes 5,000 AI matches per month. A single import can include up to 200 calendar events, .ics uploads can be up to 4 MB, and Jira ticket searches can return up to 2,000 tickets.',
   },
   {
+    q: 'What counts as an AI match?',
+    a: 'Only events that Time Translator sends to the AI count towards your monthly total. Matches made using Time Translator rules are always free: a Jira key already in the event title, one of your own mapping rules, or an event title you have logged to a ticket before. Because approving an import teaches Time Translator those titles, re-importing the same calendar usually uses no AI matches at all — you will see your matches appear without the counter moving. Events the AI examines but cannot confidently match still count, since the work has been done either way.',
+  },
+  {
     q: 'Why are there rate limits?',
     a: 'Rate limits protect the service and keep costs predictable. Signed-in users can use up to 200 AI matches per minute. Anonymous traffic is limited more tightly because public pages should only need normal browsing activity.',
   },
