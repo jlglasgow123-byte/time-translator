@@ -3,6 +3,7 @@ import { fetchAllIssueWorklogs } from '@/lib/jira-client'
 import { JIRA_CONNECTION_REQUIRED_MESSAGE, getJiraCreds, isCredsError, credsErrorResponse } from '@/lib/supabase/get-jira-creds'
 import type { JiraCredentials } from '@/lib/jira-client'
 import { safeErrorResponse } from '@/lib/errors'
+import { captureAppError } from '@/lib/observability'
 
 async function jiraGet(creds: JiraCredentials, path: string) {
   const base = creds.baseUrl.replace(/\/$/, '')
@@ -112,6 +113,13 @@ export async function GET() {
 
     return NextResponse.json({ latestWorklog: null })
   } catch (err) {
+    captureAppError(err, {
+      eventType: 'jira_latest_worklog_fetch_failed',
+      route: '/api/jira/latest-worklog',
+      action: 'fetch_latest_jira_worklog',
+      status: 'failed',
+      errorCode: 'jira_latest_worklog_fetch_failed',
+    })
     return NextResponse.json(
       safeErrorResponse(err, 'Could not fetch your latest Jira worklog. Please try again.'),
       { status: 500 }

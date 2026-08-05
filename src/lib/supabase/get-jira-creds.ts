@@ -7,7 +7,13 @@ import type { JiraCredentials } from '@/lib/jira-client'
 export const JIRA_CONNECTION_REQUIRED_MESSAGE = 'Please connect your Time Translator account to your Jira Account in Settings'
 
 type CredsError = { __credsError: true; response: NextResponse }
-export type CredsResult = JiraCredentials | CredsError
+/**
+ * Credentials plus the authenticated user's id. The id is returned so callers
+ * that need it (e.g. per-user rate limiting) cannot accidentally treat "no user"
+ * as an optional case — reaching this type at all means auth already passed.
+ */
+export type JiraCredsWithUser = JiraCredentials & { userId: string }
+export type CredsResult = JiraCredsWithUser | CredsError
 
 function credsError(response: NextResponse): CredsError {
   return { __credsError: true, response }
@@ -52,6 +58,7 @@ async function refreshAccessToken(supabase: Awaited<ReturnType<typeof createClie
 }
 
 export async function getJiraCreds(): Promise<CredsResult> {
+  // Returns the user id alongside the creds — see JiraCredsWithUser.
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -92,7 +99,7 @@ export async function getJiraCreds(): Promise<CredsResult> {
     accessToken = decryptJiraToken(data.access_token)
   }
 
-  return { baseUrl: data.base_url, accessToken }
+  return { baseUrl: data.base_url, accessToken, userId: user.id }
 }
 
 // Service-client variant for background jobs (no user session available).

@@ -27,11 +27,34 @@ function base(creds: JiraCredentials): string {
   return creds.baseUrl.replace(/\/$/, '')
 }
 
+// Escape a user-typed string for use inside a double-quoted JQL literal.
+// Backslashes first, otherwise we'd double-escape the ones we just added.
+function escapeJqlLiteral(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+// The operand of JQL's `~` is parsed as a Lucene query, not an opaque string, so
+// ordinary typed text can be a syntax error (a stray colon, bracket or trailing
+// hyphen) or silently change meaning (`*` = prefix search, `~` = fuzzy). Strip the
+// Lucene specials and the reserved boolean words, leaving plain terms to match on.
+function sanitiseForTextSearch(query: string): string {
+  return query
+    .replace(/[+!(){}[\]^"~*?:\\/&|]/g, ' ')
+    // Hyphens and minus signs are only operators at the start of a term — keep them
+    // inside words so "DOC-572", "check-in" and "Smith-Jones" stay single terms.
+    .replace(/(^|\s)[-]+/g, '$1')
+    .replace(/\b(AND|OR|NOT)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function parseIssues(issues: Record<string, unknown>[]): JiraTicket[] {
   return issues.map((issue: Record<string, unknown>) => ({
     key: issue.key as string,
     summary: (issue.fields as Record<string, unknown>)?.summary as string ?? '',
     status: ((issue.fields as Record<string, unknown>)?.status as Record<string, unknown>)?.name as string ?? '',
+    statusCategory: (((issue.fields as Record<string, unknown>)?.status as Record<string, unknown>)
+      ?.statusCategory as Record<string, unknown>)?.name as string ?? '',
     issueType: ((issue.fields as Record<string, unknown>)?.issuetype as Record<string, unknown>)?.name as string ?? '',
   }))
 }
@@ -124,7 +147,11 @@ export async function fetchOpenTickets(
   issueTypes: string[] = [],
   maxTickets = MAX_JIRA_TICKETS_PER_FETCH
 ): Promise<{ tickets: JiraTicket[]; truncated: boolean }> {
-  const keys = Array.isArray(projectKeys) ? projectKeys : [projectKeys]
+  const keys = (Array.isArray(projectKeys) ? projectKeys : [projectKeys]).filter(Boolean)
+
+  // No default project set yet — `project in ()` is invalid JQL, so return nothing
+  // rather than sending a broken query.
+  if (keys.length === 0) return { tickets: [], truncated: false }
 
   const cacheKey = ticketCacheKey(creds, keys, issueTypes, maxTickets)
   const cached = ticketCache.get(cacheKey)
@@ -132,11 +159,18 @@ export async function fetchOpenTickets(
     return cached.result
   }
 
-  const projectList = keys.map(k => `"${k}"`).join(', ')
+  const projectList = keys.map(k => `"${escapeJqlLiteral(k)}"`).join(', ')
   const issueTypeClause = issueTypes.length
-    ? ` AND issuetype in (${issueTypes.map(type => `"${type}"`).join(', ')})`
+    ? ` AND issuetype in (${issueTypes.map(type => `"${escapeJqlLiteral(type)}"`).join(', ')})`
     : ''
-  const jql = `project in (${projectList}) AND statusCategory not in (Done)${issueTypeClause} ORDER BY updated DESC`
+  // Include recently-closed tickets: time is often logged retrospectively against
+  // work that has since been completed. Keyed on statusCategoryChangedDate, not
+  // resolutiondate — many workflows move an issue to Done without setting a
+  // resolution, leaving resolutiondate null and the ticket invisible.
+  // Bounded to 45 days so a long-history project can't push the result set past
+  // MAX_JIRA_TICKETS_PER_FETCH, which would silently truncate open tickets in
+  // favour of closed ones (ORDER BY updated DESC).
+  const jql = `project in (${projectList}) AND (statusCategory not in (Done) OR (statusCategory = Done AND statusCategoryChangedDate >= -45d))${issueTypeClause} ORDER BY updated DESC`
   const modernUrl = `${base(creds)}/rest/api/3/search/jql`
   const legacyUrl = `${base(creds)}/rest/api/3/search`
 
@@ -206,6 +240,46 @@ export async function fetchIssue(
   return { key, summary: data.fields?.summary ?? '' }
 }
 
+export interface JiraProject {
+  key: string
+  name: string
+}
+
+// Projects the connected user can browse, optionally filtered by a typed query.
+// Used by the "pick your default project" step after connecting Jira.
+export async function searchProjects(
+  creds: JiraCredentials,
+  query?: string,
+  maxResults = 50
+): Promise<JiraProject[]> {
+  const params = new URLSearchParams({
+    maxResults: String(maxResults),
+    orderBy: 'name',
+  })
+  if (query) params.set('query', query)
+
+  const res = await fetch(`${base(creds)}/rest/api/3/project/search?${params}`, {
+    headers: makeHeaders(creds),
+  })
+
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('Your Jira connection has expired. Please reconnect Jira in Settings.')
+    }
+    throw new Error('Could not load your Jira projects. Please try again.')
+  }
+
+  const data = await res.json()
+  // Drop anything without a usable key — a keyless project would end up saved as
+  // the user's default and match nothing.
+  return (data.values ?? [])
+    .filter((p: Record<string, unknown>) => typeof p.key === 'string' && p.key.length > 0)
+    .map((p: Record<string, unknown>) => ({
+      key: p.key as string,
+      name: typeof p.name === 'string' && p.name ? p.name : (p.key as string),
+    }))
+}
+
 export async function searchIssues(
   creds: JiraCredentials,
   query: string,
@@ -215,20 +289,51 @@ export async function searchIssues(
   // Run two searches in parallel:
   // 1. JQL scoped to default project (prioritised, more results)
   // 2. issue/picker for cross-project fallback
-  const pickerUrl = `${base(creds)}/rest/api/3/issue/picker?query=${encodeURIComponent(query)}&currentJQL=statusCategory+not+in+(Done)&showSubTasks=true&showSubTaskParent=true`
+  // No status filter on either path: the user typed a query, so don't second-guess it
+  // by hiding tickets whose status they never asked about. Default-project results
+  // carry a real status; picker results do not (see the known gap below).
+  const pickerUrl = `${base(creds)}/rest/api/3/issue/picker?query=${encodeURIComponent(query)}&showSubTasks=true&showSubTaskParent=true`
 
-  const jqlQuery = defaultProjectKey
-    ? `project = "${defaultProjectKey}" AND statusCategory not in (Done) AND summary ~ "${query.replace(/"/g, '')}" ORDER BY updated DESC`
+  // `text ~` covers summary + description + comments + environment — the same field set
+  // Jira's own quick search uses. `summary ~` alone was narrower than users expect.
+  // Skip the JQL leg entirely if sanitising leaves no searchable terms (e.g. "!!!"),
+  // since `text ~ ""` is a 400. The picker still runs on the raw query.
+  const searchTerms = sanitiseForTextSearch(query)
+  const jqlQuery = defaultProjectKey && searchTerms
+    ? `project = "${escapeJqlLiteral(defaultProjectKey)}" AND text ~ "${escapeJqlLiteral(searchTerms)}" ORDER BY updated DESC`
     : null
 
+  // Both legs degrade to empty rather than failing the whole search — one path
+  // returning results is better than none. But a failure is reported rather than
+  // silently looking like "no matches", which is indistinguishable to the user.
+  const reportSearchFailure = (leg: string, status?: number) => {
+    captureAppEvent(`Jira ticket search leg failed (${leg})`, 'warning', {
+      eventType: 'jira_ticket_search_failed',
+      action: 'jira_ticket_search',
+      status: 'failed',
+      errorCode: `jira_search_${leg}_${status ?? 'network'}`,
+      details: { leg, httpStatus: status ?? null, queryLength: query.length },
+    })
+  }
+
   const [pickerData, jqlResults] = await Promise.all([
-    fetch(pickerUrl, { headers: makeHeaders(creds) }).then(r => r.ok ? r.json() : { sections: [] }).catch(() => ({ sections: [] })),
+    fetch(pickerUrl, { headers: makeHeaders(creds) })
+      .then(r => {
+        if (!r.ok) { reportSearchFailure('picker', r.status); return { sections: [] } }
+        return r.json()
+      })
+      .catch(() => { reportSearchFailure('picker'); return { sections: [] } }),
     jqlQuery
       ? fetch(`${base(creds)}/rest/api/3/search`, {
           method: 'POST',
           headers: makeHeaders(creds),
           body: JSON.stringify({ jql: jqlQuery, maxResults: 10, fields: ['summary', 'status', 'issuetype'] }),
-        }).then(r => r.ok ? r.json() : { issues: [] }).catch(() => ({ issues: [] }))
+        })
+          .then(r => {
+            if (!r.ok) { reportSearchFailure('jql', r.status); return { issues: [] } }
+            return r.json()
+          })
+          .catch(() => { reportSearchFailure('jql'); return { issues: [] } })
       : Promise.resolve({ issues: [] }),
   ])
 
@@ -252,6 +357,12 @@ export async function searchIssues(
     for (const issue of section.issues ?? []) {
       if (seen.has(issue.key)) continue
       seen.add(issue.key)
+      // KNOWN GAP: /issue/picker returns only id, img, key, keyHtml, summary and
+      // summaryText — there is no status field, so cross-project results carry no
+      // status and a closed ticket looks the same as an open one in the dropdown.
+      // Accepted deliberately (2026-08-05): default-project results come from the
+      // JQL path above and do show real status. Closing this would need a second
+      // lookup to hydrate statuses for these keys.
       tickets.push({
         key: issue.key,
         summary: issue.summaryText ?? issue.summary ?? '',

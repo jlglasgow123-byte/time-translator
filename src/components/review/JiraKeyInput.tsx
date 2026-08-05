@@ -30,6 +30,7 @@ export function JiraKeyInput({ value, disabled, defaultProjectKey, onChange, onB
   const [focused, setFocused] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const lastFetchedRef = useRef<{ url: string; results: JiraTicket[] }>({ url: '', results: [] })
   const debouncedQuery = useDebounce(query, 300)
 
   // Keep local query in sync when value changes externally
@@ -42,21 +43,34 @@ export function JiraKeyInput({ value, disabled, defaultProjectKey, onChange, onB
       setOpen(false)
       return
     }
+    const url = `/api/jira/search?q=${encodeURIComponent(debouncedQuery)}${defaultProjectKey ? `&project=${encodeURIComponent(defaultProjectKey)}` : ''}`
+
+    // Blur clears results, so refocusing an unchanged query would otherwise refire
+    // the same request — enough tab-throughs to hit the per-user rate limit without
+    // the user typing anything. Reuse the last response instead.
+    if (url === lastFetchedRef.current.url) {
+      setResults(lastFetchedRef.current.results)
+      setOpen(lastFetchedRef.current.results.length > 0)
+      setActiveIndex(-1)
+      return
+    }
+
     let cancelled = false
     setLoading(true)
-    const url = `/api/jira/search?q=${encodeURIComponent(debouncedQuery)}${defaultProjectKey ? `&project=${encodeURIComponent(defaultProjectKey)}` : ''}`
     fetch(url)
       .then(r => r.json())
       .then(data => {
         if (cancelled) return
-        setResults(data.results ?? [])
-        setOpen((data.results ?? []).length > 0)
+        const results = data.results ?? []
+        lastFetchedRef.current = { url, results }
+        setResults(results)
+        setOpen(results.length > 0)
         setActiveIndex(-1)
       })
       .catch(() => { if (!cancelled) setResults([]) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [debouncedQuery, disabled])
+  }, [debouncedQuery, disabled, defaultProjectKey, focused])
 
   // Close on outside click
   useEffect(() => {
@@ -105,19 +119,26 @@ export function JiraKeyInput({ value, disabled, defaultProjectKey, onChange, onB
           value={query}
           disabled={disabled}
           onChange={e => {
-            const v = e.target.value.toUpperCase()
+            // Don't force-uppercase per keystroke — right for "DOC-572", unusable for
+            // typing a name. The `uppercase` class still renders keys uppercase, and
+            // onBlur normalises the stored value.
+            const v = e.target.value
             setQuery(v)
             onChange(v)
           }}
           onFocus={() => setFocused(true)}
           onBlur={e => {
             setFocused(false)
-            // Delay so click on dropdown item fires first
-            setTimeout(() => onBlur(e.target.value.toUpperCase()), 150)
+            // Delay so click on dropdown item fires first. Only normalise to
+            // uppercase when the text is key-shaped — a free-text search left in
+            // the field shouldn't be stored as "BRENDAN".
+            const raw = e.target.value
+            const normalised = /^[a-zA-Z][a-zA-Z0-9_]{0,49}-\d{1,10}$/.test(raw.trim()) ? raw.trim().toUpperCase() : raw
+            setTimeout(() => onBlur(normalised), 150)
           }}
           onKeyDown={handleKeyDown}
           placeholder="PROJ-123 or search…"
-          className={`w-28 rounded border border-gray-300 px-2 py-1 text-sm font-mono uppercase disabled:bg-transparent disabled:border-transparent text-gray-900 pr-6 outline-none focus:border-[#3F7C85] focus:ring-2 focus:ring-[#3F7C85]/20`}
+          className={`w-40 rounded border border-gray-300 px-2 py-1 text-sm font-mono ${/^[a-zA-Z][a-zA-Z0-9_]{0,49}-\d*$/.test(query) ? 'uppercase' : ''} disabled:bg-transparent disabled:border-transparent text-gray-900 pr-6 outline-none focus:border-[#3F7C85] focus:ring-2 focus:ring-[#3F7C85]/20`}
         />
         {loading && (
           <span className="absolute right-1.5 top-1/2 -translate-y-1/2">

@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const events: CalendarEvent[] = body.events ?? []
     const jiraTickets: JiraTicket[] = body.jiraTickets ?? []
-    const defaultProjectKey: string = body.defaultProjectKey ?? 'DOC'
+    const defaultProjectKey: string = body.defaultProjectKey ?? ''
     const catchAllMappings: CatchAllMapping[] = body.catchAllMappings ?? []
     if (events.length > MAX_EVENTS_PER_IMPORT) {
       return NextResponse.json(

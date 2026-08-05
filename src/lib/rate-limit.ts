@@ -52,3 +52,34 @@ export async function checkRateLimit(
     resetAt: reset,
   }
 }
+
+/** Distinguishes "the limiter said no" from "the limiter itself is unreachable". */
+export type RateLimitOutcome =
+  | { status: 'allowed' }
+  | { status: 'limited' }
+  | { status: 'unavailable'; error: unknown }
+
+/**
+ * Rate-limit check that reports an Upstash outage instead of throwing.
+ *
+ * `checkRateLimit` throws when the Upstash env vars are missing or the network
+ * call fails. At every call site that `await` sat outside the route's try/catch,
+ * so an outage surfaced as a bare unlogged 500. Callers of this variant get an
+ * explicit `unavailable` they can log and turn into a 503.
+ *
+ * Per Project_Model.md §6 (2026-08-05), rate limiting fails CLOSED: an
+ * unreachable limiter refuses the request rather than serving it uncapped.
+ */
+export async function checkRateLimitSafe(
+  key: string,
+  limit: number,
+  windowSeconds: number,
+  amount = 1,
+): Promise<RateLimitOutcome> {
+  try {
+    const result = await checkRateLimit(key, limit, windowSeconds, amount)
+    return result.allowed ? { status: 'allowed' } : { status: 'limited' }
+  } catch (error) {
+    return { status: 'unavailable', error }
+  }
+}

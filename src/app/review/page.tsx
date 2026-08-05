@@ -187,7 +187,7 @@ export default function ReviewPage() {
     saveFormConfig({
       calendarName: existing?.calendarName ?? 'Jasmine: Cordel',
       timezone: existing?.timezone ?? 'Australia/Sydney',
-      defaultProjectKey: existing?.defaultProjectKey ?? 'DOC',
+      defaultProjectKey: existing?.defaultProjectKey ?? '',
       skipRules: existing?.skipRules ?? DEFAULT_SKIP_RULES,
       includedIssueTypes: existing?.includedIssueTypes ?? [...DEFAULT_INCLUDED_JIRA_ISSUE_TYPES],
       excludeWeekends: existing?.excludeWeekends ?? false,
@@ -201,7 +201,7 @@ export default function ReviewPage() {
     saveFormConfig({
       calendarName: existing?.calendarName ?? 'Jasmine: Cordel',
       timezone: existing?.timezone ?? 'Australia/Sydney',
-      defaultProjectKey: existing?.defaultProjectKey ?? 'DOC',
+      defaultProjectKey: existing?.defaultProjectKey ?? '',
       skipRules: rules,
       includedIssueTypes: existing?.includedIssueTypes ?? [...DEFAULT_INCLUDED_JIRA_ISSUE_TYPES],
       excludeWeekends: existing?.excludeWeekends ?? false,
@@ -228,7 +228,9 @@ export default function ReviewPage() {
 
   const handleJiraKeyBlur = useCallback(async (id: string, key: string) => {
     const trimmed = key.trim()
-    if (!/^[A-Z]{2,6}-\d+$/.test(trimmed)) return
+    // Matches the API routes' key pattern — project keys may contain digits and
+    // underscores after the first character ("ABC2-123"), and can exceed six chars.
+    if (!/^[A-Z][A-Z0-9_]{0,49}-\d{1,10}$/.test(trimmed)) return
     try {
       const res = await fetch(`/api/jira/issue?key=${encodeURIComponent(trimmed)}`)
       if (!res.ok) return

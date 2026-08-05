@@ -38,6 +38,18 @@ export function CalendarsSection({ tier }: Props) {
   const hasCalendar = calendars.length > 0
   const proLocked = isPro && hasCalendar
 
+  // While Google Calendar is connected, ICS upload isn't the active import path,
+  // so the copy explains it as the fallback rather than prompting for a file.
+  // null = still checking; render nothing rather than flashing the wrong copy.
+  const [gcalConnected, setGcalConnected] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    fetch('/api/google-calendar/credentials')
+      .then(r => r.json())
+      .then(d => setGcalConnected(!!d.connected))
+      .catch(() => setGcalConnected(false))
+  }, [])
+
   useEffect(() => {
     fetch('/api/calendars')
       .then(r => r.json())
@@ -111,13 +123,15 @@ export function CalendarsSection({ tier }: Props) {
     setCalendars(prev => prev.filter(c => c.id !== id))
   }
 
-  if (loading) return null
+  if (loading || gcalConnected === null) return null
 
   return (
     <div className="rounded-lg bg-white border border-gray-200 p-6">
       <h2 className="text-sm font-semibold text-gray-900 mb-1">Linked calendars</h2>
       <p className="text-xs text-gray-400 mb-4">
-        {proLocked
+        {gcalConnected
+          ? 'Your Google Calendar is connected, so there is nothing to do here. If you choose to disconnect it, you can upload an .ics file manually instead.'
+          : proLocked
           ? 'Pro accounts only allow one calendar to be linked. Upgrade to a Max Power account to link more calendars to your Time Translator account.'
           : isPro
             ? 'Upload a sample .ics file to connect and link your calendar.'
@@ -155,8 +169,8 @@ export function CalendarsSection({ tier }: Props) {
         </ul>
       )}
 
-      {/* Link a new calendar */}
-      {canLink && !proLocked && (
+      {/* Link a new calendar — not offered while Google Calendar is the import path */}
+      {canLink && !proLocked && !gcalConnected && (
         <div>
           {detected && !showWarning ? (
             <div className="rounded-xl border border-[#DCEEF5] bg-[#FBFBF8] px-4 py-3 flex items-center justify-between">

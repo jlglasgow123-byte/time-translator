@@ -84,7 +84,7 @@ export function useGoogleCalendarImport() {
           catchAllMappings: saved?.catchAllMappings ?? [],
           skipRules: saved?.skipRules ?? [],
           excludeWeekends: saved?.excludeWeekends ?? false,
-          defaultProjectKey: saved?.defaultProjectKey || 'DOC',
+          defaultProjectKey: saved?.defaultProjectKey || '',
           includedIssueTypes: saved?.includedIssueTypes ?? [],
         }),
       })
@@ -96,7 +96,7 @@ export function useGoogleCalendarImport() {
 
       const config: JiraConfig = {
         jiraBaseUrl: '',
-        defaultProjectKey: saved?.defaultProjectKey || 'DOC',
+        defaultProjectKey: saved?.defaultProjectKey || '',
         timezone: saved?.timezone || 'Australia/Sydney',
         calendarName: 'Google Calendar',
         catchAllMappings: saved?.catchAllMappings ?? [],

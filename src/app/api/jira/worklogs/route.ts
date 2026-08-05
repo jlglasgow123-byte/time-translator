@@ -3,6 +3,7 @@ import { fetchAllIssueWorklogs } from '@/lib/jira-client'
 import { getJiraCreds, isCredsError, credsErrorResponse } from '@/lib/supabase/get-jira-creds'
 import type { JiraCredentials } from '@/lib/jira-client'
 import { safeErrorResponse } from '@/lib/errors'
+import { captureAppError, requestIdFromHeaders } from '@/lib/observability'
 
 async function jiraGet(creds: JiraCredentials, path: string) {
   const base = creds.baseUrl.replace(/\/$/, '')
@@ -38,6 +39,7 @@ export interface WorklogEntry {
 }
 
 export async function GET(req: NextRequest) {
+  const requestId = requestIdFromHeaders(req.headers)
   const creds = await getJiraCreds()
   if (isCredsError(creds)) return credsErrorResponse(creds)
 
@@ -116,6 +118,15 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ worklogs, capped })
   } catch (err) {
+    captureAppError(err, {
+      eventType: 'jira_worklogs_fetch_failed',
+      requestId,
+      route: '/api/jira/worklogs',
+      action: 'fetch_jira_worklogs',
+      status: 'failed',
+      errorCode: 'jira_worklogs_fetch_failed',
+      details: { start, end },
+    })
     return NextResponse.json(
       safeErrorResponse(err, 'Could not fetch your Jira worklogs. Please try again.'),
       { status: 500 }

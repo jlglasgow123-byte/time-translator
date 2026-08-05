@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     const catchAllMappings: CatchAllMapping[] = Array.isArray(body.catchAllMappings) ? body.catchAllMappings : []
     const skipRules: SkipRule[] = Array.isArray(body.skipRules) && body.skipRules.length ? body.skipRules : DEFAULT_SKIP_RULES
     const excludeWeekends = Boolean(body.excludeWeekends)
-    const defaultProjectKey: string = body.defaultProjectKey || 'DOC'
+    const defaultProjectKey: string = body.defaultProjectKey || ''
     const includedIssueTypes: string[] = Array.isArray(body.includedIssueTypes) && body.includedIssueTypes.length
       ? body.includedIssueTypes
       : [...DEFAULT_INCLUDED_JIRA_ISSUE_TYPES]
@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
 
     const creds = jiraCreds as import('@/lib/jira-client').JiraCredentials
 
-    const projectKeys = new Set<string>([defaultProjectKey])
+    const projectKeys = new Set<string>(defaultProjectKey ? [defaultProjectKey] : [])
     for (const ev of events) {
       for (const m of ev.title.matchAll(KEY_PREFIX_RE)) projectKeys.add(m[1].toUpperCase())
     }

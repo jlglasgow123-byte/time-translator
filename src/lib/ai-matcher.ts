@@ -559,9 +559,11 @@ export async function matchEvents(
         reason = ai.reason
         matchSource = 'ai'
       } else {
-        jiraKey = `${defaultProjectKey}-?`
+        // With no default project there is nothing to guess a key from — leave it
+        // blank rather than inventing one, and say why.
+        jiraKey = defaultProjectKey ? `${defaultProjectKey}-?` : ''
         confidence = 'LOW'
-        reason = 'No match found'
+        reason = defaultProjectKey ? 'No match found' : 'No default Jira Project'
         matchSource = 'none'
       }
 
@@ -610,13 +612,24 @@ export async function matchEvents(
 
 function buildPrompt(events: CalendarEvent[], tickets: JiraTicket[], defaultProjectKey: string, learnedMappings: LearnedMapping[]): string {
   // Only include tickets from projects referenced in this batch — keeps prompt small
-  const batchProjectKeys = new Set<string>([defaultProjectKey])
+  // Empty when no default project is set — an empty entry would match nothing anyway.
+  const batchProjectKeys = new Set<string>(defaultProjectKey ? [defaultProjectKey] : [])
   const KEY_RE = /\b([A-Z]{2,6})-\d+\b/gi
   for (const ev of events) {
     for (const m of ev.title.matchAll(KEY_RE)) batchProjectKeys.add(m[1].toUpperCase())
   }
   const relevantTickets = tickets.filter(t => batchProjectKeys.has(t.key.split('-')[0]))
-  const ticketList = relevantTickets.map(t => ({ key: t.key, summary: t.summary }))
+  // Status is included because the ticket list now contains recently-closed tickets
+  // as well as open ones (see fetchOpenTickets). Without it the model cannot tell
+  // them apart and has no basis for preferring an open ticket.
+  // Deliberately the *category* ("To Do" / "In Progress" / "Done") rather than the
+  // status name: names are workflow-specific ("Shipped", "Parked", "Won't Do") and
+  // the model would be guessing which ones mean closed. The category is uniform.
+  const ticketList = relevantTickets.map(t => ({
+    key: t.key,
+    summary: t.summary,
+    status: t.statusCategory || t.status,
+  }))
   const eventList = events.map(e => ({ uid: e.uid, title: e.title, durationSeconds: e.durationSeconds }))
 
   // Build a concise learned-history hint for events in this batch
@@ -629,10 +642,9 @@ function buildPrompt(events: CalendarEvent[], tickets: JiraTicket[], defaultProj
       }).join('\n')}\n`
     : ''
 
-  return `Match each calendar event to the most relevant open Jira ticket.
+  return `Match each calendar event to the most relevant Jira ticket.
 
-Default project key: ${defaultProjectKey}
-Open tickets:
+${defaultProjectKey ? `Default project key: ${defaultProjectKey}\n` : ''}Available tickets (mostly open; recently-closed ones are included because time is often logged after the work finished):
 ${JSON.stringify(ticketList, null, 2)}
 ${learnedSection}
 Calendar events to match:
@@ -643,6 +655,7 @@ Rules:
 - If the event relates to general project work but no specific ticket is clear, return the most relevant ticket with MEDIUM confidence.
 - If you cannot make a reasonable match, pick the closest ticket and return LOW confidence.
 - Only use keys from the provided ticket list. Do not invent keys.
+- Each ticket's "status" is its Jira status category: "To Do" or "In Progress" means open, "Done" means closed. If an open and a closed ticket fit an event equally well, prefer the open one. Only pick a "Done" ticket when it is clearly the better match.
 
 Return a JSON array. Each item must have exactly these fields:
 {

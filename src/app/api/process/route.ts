@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     const learnedRaw = (formData.get('learnedMappings') as string) ?? '[]'
     const skipRulesRaw = (formData.get('skipRules') as string) ?? ''
     const excludeWeekends = formData.get('excludeWeekends') === 'true'
-    const defaultProjectKey = (formData.get('defaultProjectKey') as string) ?? 'DOC'
+    const defaultProjectKey = (formData.get('defaultProjectKey') as string) ?? ''
     const includedIssueTypesRaw = (formData.get('includedIssueTypes') as string) ?? '[]'
 
     // Jira credentials are only needed for the jira workflow — fetch once and reuse below
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
     const creds = jiraCreds! as import('@/lib/jira-client').JiraCredentials
 
     // Collect all project key prefixes from event titles
-    const projectKeys = new Set<string>([defaultProjectKey])
+    const projectKeys = new Set<string>(defaultProjectKey ? [defaultProjectKey] : [])
     for (const ev of events) {
       for (const m of ev.title.matchAll(KEY_PREFIX_RE)) projectKeys.add(m[1].toUpperCase())
     }

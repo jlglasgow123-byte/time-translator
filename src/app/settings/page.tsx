@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -14,6 +14,7 @@ import { UpgradeButton, UpgradePrompt } from '@/components/billing/UpgradePrompt
 import { CalendarsSection } from '@/components/settings/CalendarsSection'
 import { GoogleCalendarSection } from '@/components/settings/GoogleCalendarSection'
 import { DisconnectConfirmModal } from '@/components/settings/DisconnectConfirmModal'
+import { DefaultProjectModal } from '@/components/settings/DefaultProjectModal'
 
 interface Creds {
   email: string | null
@@ -43,6 +44,7 @@ function SettingsInner() {
   const searchParams = useSearchParams()
   const justUpgraded = searchParams.get('upgraded') === '1'
   const jiraJustConnected = searchParams.get('jira_connected') === '1'
+  const shouldPickProject = searchParams.get('pick_project') === '1'
   const jiraError = searchParams.get('jira_error')
 
   // Jira connection
@@ -58,10 +60,13 @@ function SettingsInner() {
   const [portalError, setPortalError] = useState<string | null>(null)
 
   // Preferences (localStorage)
-  const [defaultProjectKey, setDefaultProjectKey] = useState('DOC')
+  const [defaultProjectKey, setDefaultProjectKey] = useState('')
+  const [showProjectPicker, setShowProjectPicker] = useState(false)
   const [timezone, setTimezone] = useState('Australia/Sydney')
   const [includedIssueTypes, setIncludedIssueTypes] = useState<string[]>([...DEFAULT_INCLUDED_JIRA_ISSUE_TYPES])
   const [prefsInitialized, setPrefsInitialized] = useState(false)
+  const [prefsSaved, setPrefsSaved] = useState(false)
+  const prefsFirstSaveRef = useRef(true)
 
   // Account deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -88,6 +93,14 @@ function SettingsInner() {
     setPrefsInitialized(true)
   }, [])
 
+  // Straight after connecting Jira, prompt for a default project — matching can't
+  // work without one. Skip if they already have one set. Kept separate from the
+  // load effect above so a URL change can't re-run the load and clobber an edit
+  // the user is part-way through typing.
+  useEffect(() => {
+    if (shouldPickProject && !loadFormConfig()?.defaultProjectKey) setShowProjectPicker(true)
+  }, [shouldPickProject])
+
   // Auto-save preferences whenever they change
   useEffect(() => {
     if (!prefsInitialized) return
@@ -100,6 +113,15 @@ function SettingsInner() {
       includedIssueTypes,
       excludeWeekends: existing?.excludeWeekends ?? false,
     })
+    // Don't flash on the initial hydration pass — only on real edits.
+    if (prefsFirstSaveRef.current) {
+      prefsFirstSaveRef.current = false
+      return
+    }
+    // Flash a "Saved" tick so the change is visibly acknowledged.
+    setPrefsSaved(true)
+    const timer = setTimeout(() => setPrefsSaved(false), 2000)
+    return () => clearTimeout(timer)
   }, [prefsInitialized, defaultProjectKey, timezone, includedIssueTypes])
 
   function toggleIssueType(issueType: string) {
@@ -312,7 +334,7 @@ function SettingsInner() {
         </div>
 
         {/* Jira connection */}
-        <div className="rounded-lg bg-white border border-gray-200 p-6">
+        <div id="jira" className="scroll-mt-6 rounded-lg bg-white border border-gray-200 p-6">
           <h2 className="text-sm font-semibold text-gray-900 mb-4">Jira connection</h2>
           {jiraJustConnected && (
             <div className="mb-4 rounded-md bg-green-50 px-3 py-2 text-xs font-medium text-green-700">
@@ -375,17 +397,43 @@ function SettingsInner() {
 
         {/* Preferences */}
         <div className="rounded-lg bg-white border border-gray-200 p-6">
-          <h2 className="text-sm font-semibold text-gray-900 mb-1">Preferences</h2>
-          <p className="text-xs text-gray-400 mb-4">Saved automatically.</p>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900 mb-1">Preferences</h2>
+              <p className="text-xs text-gray-500">Changes save automatically — no need to press anything.</p>
+            </div>
+            <span
+              aria-live="polite"
+              className={`flex shrink-0 items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 transition-opacity duration-300 ${prefsSaved ? 'opacity-100' : 'opacity-0'}`}
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M3.5 8.5l3 3 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Saved
+            </span>
+          </div>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Default Jira project key</label>
-              <input
-                type="text"
-                value={defaultProjectKey}
-                onChange={e => setDefaultProjectKey(e.target.value.toUpperCase())}
-                className="w-32 rounded border border-gray-300 px-3 py-2 text-sm font-mono uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={defaultProjectKey}
+                  placeholder="Not set"
+                  onChange={e => setDefaultProjectKey(e.target.value.toUpperCase())}
+                  className="w-32 rounded border border-gray-300 px-3 py-2 text-sm font-mono uppercase text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {creds.connected && (
+                  <Button variant="secondary" onClick={() => setShowProjectPicker(true)}>
+                    Browse my projects
+                  </Button>
+                )}
+              </div>
+              {!defaultProjectKey && (
+                <p className="mt-1.5 text-xs font-medium text-amber-700">
+                  No default project set — events without a Jira key in the title can&apos;t be matched.
+                </p>
+              )}
               <p className="mt-1.5 text-xs text-gray-500">
                 Events without a Jira key in the title are AI-matched against <strong>this project only</strong>. To log
                 time to a different project, put its key in the event title (e.g. <span className="font-mono">CSD-123</span>) —
@@ -571,6 +619,15 @@ function SettingsInner() {
         </div>
 
       </div>
+
+      {/* Default project picker — shown after connecting Jira, or on demand */}
+      {showProjectPicker && (
+        <DefaultProjectModal
+          currentKey={defaultProjectKey}
+          onClose={() => setShowProjectPicker(false)}
+          onSelect={key => { setDefaultProjectKey(key); setShowProjectPicker(false) }}
+        />
+      )}
 
       {/* Delete account confirmation modal */}
       {showDeleteConfirm && (

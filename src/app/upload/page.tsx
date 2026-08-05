@@ -29,6 +29,36 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
+// One integration row inside the "Connect your accounts" banner.
+function ConnectRow({ name, description, connected, href }: {
+  name: string
+  description: string
+  connected: boolean
+  href: string
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center justify-between gap-4 rounded-2xl bg-white px-4 py-3 transition-colors hover:bg-[#FBFBF8]"
+    >
+      <div>
+        <p className="text-sm font-bold text-[#26333A]">{name}</p>
+        <p className="mt-0.5 text-xs text-[#66747A]">{description}</p>
+      </div>
+      {connected ? (
+        <span className="flex shrink-0 items-center gap-2 text-xs font-bold text-green-700">
+          <span className="inline-block h-2 w-2 rounded-full bg-green-500" />
+          Connected
+        </span>
+      ) : (
+        <span className="shrink-0 rounded-full bg-[#3F7C85] px-4 py-2 text-xs font-extrabold text-white">
+          Connect
+        </span>
+      )}
+    </Link>
+  )
+}
+
 type LegacyWorkEntry = WorkEntry & JiraMatch
 type LatestWorklog = {
   startedAt: string
@@ -140,7 +170,7 @@ export default function UploadPage() {
   const [latestWorklogOpen, setLatestWorklogOpen] = useState(false)
 
   const [timezone, setTimezone] = useState('Australia/Sydney')
-  const [defaultProjectKey, setDefaultProjectKey] = useState('DOC')
+  const [defaultProjectKey, setDefaultProjectKey] = useState('')
   const [includedIssueTypes, setIncludedIssueTypes] = useState<string[]>([...DEFAULT_INCLUDED_JIRA_ISSUE_TYPES])
   const [initialized, setInitialized] = useState(false)
   const endDateIsFuture = endDate > getToday()
@@ -150,11 +180,20 @@ export default function UploadPage() {
   const [gcalConnected, setGcalConnected] = useState<boolean | null>(null)
   const gcal = useGoogleCalendarImport()
 
+  // Jira connection status — surfaced in the "Connect your accounts" banner so
+  // Atlassian isn't hidden away in Settings. null = still checking.
+  const [jiraConnected, setJiraConnected] = useState<boolean | null>(null)
+
   useEffect(() => {
     fetch('/api/google-calendar/credentials')
       .then(r => r.json())
       .then(d => setGcalConnected(!!d.connected))
       .catch(() => setGcalConnected(false))
+
+    fetch('/api/jira/credentials')
+      .then(r => r.json())
+      .then(d => setJiraConnected(!!d.connected))
+      .catch(() => setJiraConnected(false))
   }, [])
 
   // Start date must be within 90 days of end date
@@ -363,6 +402,32 @@ export default function UploadPage() {
           </p>
         </div>
 
+        {/* Connect your accounts — both integrations in one place, so Atlassian is
+            as visible as Google Calendar. Hidden once both are connected. */}
+        {gcalConnected !== null && jiraConnected !== null && !(gcalConnected && jiraConnected) && (
+          <div className="mb-6 rounded-[28px] border-2 border-[#3F7C85] bg-[#DCEEF5]/50 p-5">
+            <p className="text-sm font-extrabold text-[#26333A]">Connect your accounts</p>
+            <p className="mt-1 text-xs text-[#66747A]">
+              Time Translator works best with both connected — your calendar for events, Jira for the
+              tickets to log against.
+            </p>
+            <div className="mt-4 space-y-2">
+              <ConnectRow
+                name="Jira"
+                description="Log time straight to your Jira tickets."
+                connected={jiraConnected}
+                href="/settings#jira"
+              />
+              <ConnectRow
+                name="Google Calendar"
+                description="Import events directly — no export file needed."
+                connected={gcalConnected}
+                href="/settings#google-calendar"
+              />
+            </div>
+          </div>
+        )}
+
         {gcalConnected !== null && (
         <form className="space-y-7 rounded-[32px] border border-[#DCEEF5] bg-white/90 p-6 shadow-[0_18px_48px_rgba(38,51,58,0.06)]">
 
@@ -409,22 +474,6 @@ export default function UploadPage() {
             </div>
           ) : (
           <>
-          {/* Encouraged path: connect Google Calendar (OAuth lives in Settings) */}
-          <Link
-            href="/settings#google-calendar"
-            className="block rounded-[28px] border-2 border-[#3F7C85] bg-[#DCEEF5]/50 p-5 transition-colors hover:bg-[#DCEEF5]"
-          >
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-extrabold text-[#26333A]">Connect your Google Calendar</p>
-                <p className="mt-1 text-xs text-[#66747A]">
-                  Recommended — import events directly from your calendar, no export file needed.
-                </p>
-              </div>
-              <span className="rounded-full bg-[#3F7C85] px-4 py-2 text-xs font-extrabold text-white">Connect</span>
-            </div>
-          </Link>
-
           {/* File drop zone */}
           <div
             onDrop={onDrop}

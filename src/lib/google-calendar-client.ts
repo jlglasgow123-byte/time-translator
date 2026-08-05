@@ -4,6 +4,7 @@ import type { CalendarEvent, SkipRule } from '@/types'
 import { encryptGoogleCalendarToken, decryptGoogleCalendarToken } from '@/lib/crypto/google-calendar-token'
 import { shouldSkip, DEFAULT_SKIP_RULES } from '@/lib/skip-rules'
 import { formatDate, formatDayLabel, formatTime, utcToLocal } from '@/lib/timezone'
+import { captureAppError, captureAppEvent } from '@/lib/observability'
 
 export interface GoogleCalendarCredentials {
   accessToken: string
@@ -42,17 +43,57 @@ async function refreshAccessToken(
     }),
   })
 
-  if (!res.ok) return null
+  if (!res.ok) {
+    // Returning null here causes the caller to DELETE the user's stored credentials, so
+    // this is the moment a working Google connection silently disappears. A 400
+    // invalid_grant means the user revoked access or the token expired — expected, and
+    // a reconnect fixes it. Anything else (5xx, network, bad client credentials) would
+    // disconnect users through no fault of their own, so it is recorded as an error.
+    const body = await res.text().catch(() => '')
+    const invalidGrant = res.status === 400 && body.includes('invalid_grant')
+    captureAppEvent(
+      invalidGrant
+        ? 'Google Calendar refresh token is no longer valid — user must reconnect'
+        : 'Google Calendar token refresh failed unexpectedly — user is being disconnected',
+      invalidGrant ? 'warning' : 'error',
+      {
+        eventType: 'gcal_token_refresh_failed',
+        userId,
+        action: 'refresh_google_token',
+        status: 'failed',
+        errorCode: invalidGrant ? 'gcal_refresh_token_invalid' : 'gcal_token_refresh_failed',
+        details: {
+          httpStatus: res.status,
+          clientIdPresent: Boolean(process.env.GOOGLE_CLIENT_ID),
+          clientSecretPresent: Boolean(process.env.GOOGLE_CLIENT_SECRET),
+        },
+      }
+    )
+    return null
+  }
 
   const tokens = await res.json()
   const { access_token, expires_in } = tokens
   const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString()
 
-  await supabase.from('google_calendar_credentials').update({
+  // If this write fails the refresh still works for this request, but the new token is
+  // never persisted — so every subsequent request refreshes again, burning Google quota.
+  const { error: persistError } = await supabase.from('google_calendar_credentials').update({
     access_token: encryptGoogleCalendarToken(access_token),
     expires_at: expiresAt,
     updated_at: new Date().toISOString(),
   }).eq('user_id', userId)
+
+  if (persistError) {
+    captureAppError(persistError, {
+      eventType: 'gcal_token_persist_failed',
+      userId,
+      action: 'refresh_google_token',
+      status: 'failed',
+      errorCode: 'gcal_token_persist_failed',
+      details: { dbCode: (persistError as { code?: string }).code },
+    })
+  }
 
   return access_token
 }
@@ -68,11 +109,25 @@ export async function getGoogleCalendarCreds(
   supabase: SupabaseClient,
   userId: string
 ): Promise<GoogleCalendarCredsResult> {
-  const { data } = await supabase
+  const { data, error: readError } = await supabase
     .from('google_calendar_credentials')
     .select('access_token, refresh_token, expires_at')
     .eq('user_id', userId)
     .maybeSingle()
+
+  // A read failure is indistinguishable from "never connected" to the caller, which
+  // sends a connected user back through the OAuth flow for no reason. maybeSingle()
+  // returns no error for a missing row, so anything here is a genuine failure.
+  if (readError) {
+    captureAppError(readError, {
+      eventType: 'gcal_credentials_read_failed',
+      userId,
+      action: 'read_google_credentials',
+      status: 'failed',
+      errorCode: 'gcal_credentials_read_failed',
+      details: { dbCode: (readError as { code?: string }).code },
+    })
+  }
 
   if (!data) return { ok: false, reason: 'not_connected' }
 
@@ -85,7 +140,25 @@ export async function getGoogleCalendarCreds(
 
   const refreshed = await refreshAccessToken(supabase, userId, data.refresh_token)
   if (!refreshed) {
-    await supabase.from('google_calendar_credentials').delete().eq('user_id', userId)
+    // refreshAccessToken has already recorded WHY. This records the consequence: the
+    // user's Google Calendar connection is being removed and they will be prompted to
+    // reconnect. A cluster of these points at a credentials/config problem, not users.
+    const { error: deleteError } = await supabase
+      .from('google_calendar_credentials')
+      .delete()
+      .eq('user_id', userId)
+
+    if (deleteError) {
+      captureAppError(deleteError, {
+        eventType: 'gcal_credentials_delete_failed',
+        userId,
+        action: 'clear_google_credentials',
+        status: 'failed',
+        errorCode: 'gcal_credentials_delete_failed',
+        details: { dbCode: (deleteError as { code?: string }).code },
+      })
+    }
+
     return { ok: false, reason: 'reconnect_required' }
   }
 

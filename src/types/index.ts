@@ -19,7 +19,14 @@ export interface CalendarEvent {
 export interface JiraTicket {
   key: string
   summary: string
+  /** Workflow-specific display name, e.g. "Done", "Shipped", "Parked". For display. */
   status: string
+  /**
+   * Jira's uniform three-value category: "To Do" | "In Progress" | "Done".
+   * Identical across every workflow, unlike `status`, so it is what the AI is given
+   * to reason about open-vs-closed.
+   */
+  statusCategory?: string
   issueType?: string
 }
 
