@@ -625,11 +625,15 @@ function buildPrompt(events: CalendarEvent[], tickets: JiraTicket[], defaultProj
   // Deliberately the *category* ("To Do" / "In Progress" / "Done") rather than the
   // status name: names are workflow-specific ("Shipped", "Parked", "Won't Do") and
   // the model would be guessing which ones mean closed. The category is uniform.
-  const ticketList = relevantTickets.map(t => ({
-    key: t.key,
-    summary: t.summary,
-    status: t.statusCategory || t.status,
-  }))
+  // Omit `status` entirely rather than falling back to the workflow-specific name:
+  // the rules below tell the model the values are "To Do"/"In Progress"/"Done", so
+  // emitting "Shipped" or "Parked" here would make the prompt misdescribe its own
+  // input — worse than sending no status at all.
+  const ticketList = relevantTickets.map(t => (
+    t.statusCategory
+      ? { key: t.key, summary: t.summary, status: t.statusCategory }
+      : { key: t.key, summary: t.summary }
+  ))
   const eventList = events.map(e => ({ uid: e.uid, title: e.title, durationSeconds: e.durationSeconds }))
 
   // Build a concise learned-history hint for events in this batch
@@ -655,7 +659,7 @@ Rules:
 - If the event relates to general project work but no specific ticket is clear, return the most relevant ticket with MEDIUM confidence.
 - If you cannot make a reasonable match, pick the closest ticket and return LOW confidence.
 - Only use keys from the provided ticket list. Do not invent keys.
-- Each ticket's "status" is its Jira status category: "To Do" or "In Progress" means open, "Done" means closed. If an open and a closed ticket fit an event equally well, prefer the open one. Only pick a "Done" ticket when it is clearly the better match.
+- Where a ticket has a "status" field it is the Jira status category: "To Do" or "In Progress" means open, "Done" means closed. If an open and a closed ticket fit an event equally well, prefer the open one. Only pick a "Done" ticket when it is clearly the better match. Tickets with no "status" field carry no open/closed signal — judge them on relevance alone.
 
 Return a JSON array. Each item must have exactly these fields:
 {

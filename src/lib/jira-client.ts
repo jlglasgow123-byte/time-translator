@@ -39,10 +39,16 @@ function escapeJqlLiteral(value: string): string {
 // Lucene specials and the reserved boolean words, leaving plain terms to match on.
 function sanitiseForTextSearch(query: string): string {
   return query
-    .replace(/[+!(){}[\]^"~*?:\\/&|]/g, ' ')
-    // Hyphens and minus signs are only operators at the start of a term — keep them
-    // inside words so "DOC-572", "check-in" and "Smith-Jones" stay single terms.
-    .replace(/(^|\s)[-]+/g, '$1')
+    // Note the explicit \\ and \/ — writing these as one class risks `\\/` being
+    // read as a literal slash, silently dropping backslash from the set.
+    .replace(/[+!(){}[\]^"~*?:&|]/g, ' ')
+    .replace(/\\/g, ' ')
+    .replace(/\//g, ' ')
+    // Hyphens are only operators at a term boundary — keep them inside words so
+    // "DOC-572", "check-in" and "Smith-Jones" stay single terms. Strips both
+    // leading ("-foo") and trailing ("DOC-", the normal mid-typing state).
+    .replace(/(^|\s)-+/g, '$1')
+    .replace(/-+(?=\s|$)/g, '')
     .replace(/\b(AND|OR|NOT)\b/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
