@@ -38,18 +38,9 @@ export default function ContactPage() {
           <p className="mt-3 text-base leading-7 text-[#66747A]">
             Use this form to contact us about general information or ask a question.
           </p>
-        </div>
-
-        <div className="mb-8 flex items-start gap-3 rounded-2xl border border-[#DCEEF5] bg-[#F1F8FA] p-5">
-          <span
-            aria-hidden="true"
-            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#3F7C85] text-sm font-bold text-white"
-          >
-            ?
-          </span>
-          <p className="text-sm leading-6 text-[#26333A]">
-            <span className="font-semibold">Did you know?</span> You can report bugs or request new features using the
-            &ldquo;?&rdquo; icon in the bottom right of the screen.
+          <p className="mt-3 text-base leading-7 text-[#66747A]">
+            <span className="font-semibold text-[#26333A]">Did you know?</span> You can report bugs or request new
+            features using the &ldquo;?&rdquo; icon in the bottom right of the screen.
           </p>
         </div>
 
@@ -71,7 +62,7 @@ export default function ContactPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="mt-2 w-full rounded-xl border border-[#DCEEF5] bg-[#FBFBF8] px-4 py-3 text-sm text-[#26333A] outline-none focus:border-[#3F7C85]"
-                  placeholder="alan.turing@example.com.au"
+                  placeholder="you@example.com"
                 />
               </div>
               <div>
@@ -100,7 +91,7 @@ export default function ContactPage() {
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   className="mt-2 w-full rounded-xl border border-[#DCEEF5] bg-[#FBFBF8] px-4 py-3 text-sm text-[#26333A] outline-none focus:border-[#3F7C85]"
-                  placeholder="What's your message for us?"
+                  placeholder="What integration or feature do you need?"
                 />
               </div>
               {error && <p className="text-sm font-medium text-red-600">{error}</p>}
