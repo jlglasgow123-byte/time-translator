@@ -19,6 +19,9 @@ export const UNAUTHENTICATED_REQUESTS_PER_IP_PER_MINUTE = 20
 // one is an outbound call to the user's Jira. Generous enough for real typing, low
 // enough that a stuck client can't hammer their instance.
 export const JIRA_LOOKUPS_PER_MINUTE_PER_USER = 60
+// Jira's project search is a substring match over key and name, so a query longer
+// than this is a stuck client rather than a real search. Truncated, not rejected.
+export const MAX_JIRA_PROJECT_QUERY_LENGTH = 100
 
 export function tierAiMonthlyLimit(tier: string | null | undefined) {
   return TIER_AI_MONTHLY_LIMITS[tier ?? 'free'] ?? TIER_AI_MONTHLY_LIMITS.free

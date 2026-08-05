@@ -3,9 +3,7 @@ import { searchIssues } from '@/lib/jira-client'
 import { getJiraCreds, isCredsError, credsErrorResponse } from '@/lib/supabase/get-jira-creds'
 import { safeErrorResponse } from '@/lib/errors'
 import { captureAppError, requestIdFromHeaders } from '@/lib/observability'
-import { createClient } from '@/lib/supabase/server'
-import { checkRateLimit } from '@/lib/rate-limit'
-import { JIRA_LOOKUPS_PER_MINUTE_PER_USER } from '@/lib/security-limits'
+import { guardJiraLookup } from '@/lib/jira-lookup-guard'
 
 export async function GET(req: NextRequest) {
   const requestId = requestIdFromHeaders(req.headers)
@@ -13,14 +11,13 @@ export async function GET(req: NextRequest) {
   if (isCredsError(creds)) return credsErrorResponse(creds)
 
   // Keystroke-driven, so cap it — every call hits the user's own Jira.
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (user) {
-    const limit = await checkRateLimit(`jira-lookup:${user.id}`, JIRA_LOOKUPS_PER_MINUTE_PER_USER, 60)
-    if (!limit.allowed) {
-      return NextResponse.json({ error: 'Too many searches. Please wait a moment and try again.' }, { status: 429 })
-    }
-  }
+  const limited = await guardJiraLookup({
+    userId: creds.userId,
+    scope: 'search',
+    requestId,
+    route: '/api/jira/search',
+  })
+  if (limited) return limited
 
   const q = req.nextUrl.searchParams.get('q') ?? ''
   // Jira project keys are uppercase alphanumerics/underscore. Anything else is not a
