@@ -35,17 +35,31 @@ function baseFields(message: string, severity: Severity, context: ObservabilityC
   }
 }
 
+// Keys whose VALUE might carry a credential. Matching is on the key name only, so it is
+// a blunt instrument: a harmless field like `clientSecretPresent` (a boolean) matches
+// too. That is the intended trade-off — over-redacting is safe, under-redacting is not.
+const CREDENTIAL_KEY_RE = /token|secret|password|cookie|authorization|api[_-]?key/i
+
+// Deliberately REPLACES a matched value rather than dropping the key. Dropping it made
+// redaction invisible: two separate bugs shipped where a diagnostic field was silently
+// missing from every row — first metrics named `...Token`, later `clientSecretPresent` —
+// and in both cases the absence looked identical to "the code never ran". A visible
+// '[redacted]' marker means a mis-named field announces itself the first time it is read.
+// See Project_Model.md §6.
+const REDACTED = '[redacted]'
+
 function sanitizeDetails(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
 
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !/token|secret|password|cookie|authorization|api[_-]?key/i.test(key))
       .slice(0, 40)
       .map(([key, nested]) => {
-        if (typeof nested === 'string') return [key.slice(0, 80), nested.slice(0, 500)]
-        if (typeof nested === 'number' || typeof nested === 'boolean' || nested === null) return [key.slice(0, 80), nested]
-        return [key.slice(0, 80), '[object]']
+        const safeKey = key.slice(0, 80)
+        if (CREDENTIAL_KEY_RE.test(key)) return [safeKey, REDACTED]
+        if (typeof nested === 'string') return [safeKey, nested.slice(0, 500)]
+        if (typeof nested === 'number' || typeof nested === 'boolean' || nested === null) return [safeKey, nested]
+        return [safeKey, '[object]']
       })
   )
 }

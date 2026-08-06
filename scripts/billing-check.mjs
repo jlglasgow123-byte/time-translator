@@ -492,13 +492,12 @@ console.log(`
     logic. Covering them needs Stripe test mode against a preview deployment.
 
   Quota and limits — these need no payment and can be checked any time.
-  FOUR routes are tier-limited; three of them consume AI quota:
+  THREE routes are tier-limited; two of them consume AI quota:
     /api/process               .ics file import                (consumes AI quota)
     /api/google-calendar/sync  Google Calendar sync            (consumes AI quota)
-    /api/match-events          re-matching existing events     (consumes AI quota)
     /api/calendars             calendar linking (tier-limited, no AI)
 
-    Expired trial, any AI route (process, gcal sync, match-events) -> 402, blocked before any AI call
+    Expired trial, either AI route (process, gcal sync) -> 402, blocked before any AI call
     Blocked account (access_blocked_at set)   -> 402 on every AI route
     Set usage.ai_calls just under the monthly cap, then import a bigger batch
       -> 429, and usage.ai_calls is UNCHANGED (the batch is all-or-nothing)
@@ -507,9 +506,8 @@ console.log(`
       so there is nothing to refund on this path.
     If Anthropic fails mid-import, events that never reached the model are
       refunded and usage.ai_calls goes back down. Verify on /api/process and
-      /api/google-calendar/sync. NOTE: /api/match-events only refunds when the
-      call actually throws, not when matching resolves with AI unavailable —
-      so do not expect a refund there on a soft AI failure.
+      /api/google-calendar/sync — both refund on a soft AI failure (matching
+      resolving with AI unavailable), not only when the call throws.
 
   Webhook signature rejection (safe to run against production — both are rejected
   before anything is read):

@@ -64,8 +64,11 @@ async function refreshAccessToken(
         errorCode: invalidGrant ? 'gcal_refresh_token_invalid' : 'gcal_token_refresh_failed',
         details: {
           httpStatus: res.status,
-          clientIdPresent: Boolean(process.env.GOOGLE_CLIENT_ID),
-          clientSecretPresent: Boolean(process.env.GOOGLE_CLIENT_SECRET),
+          // Merged into one boolean because a field named `clientSecretPresent` matches
+          // sanitizeDetails()'s credential-key regex and would persist as '[redacted]' —
+          // which says nothing about whether the secret is actually set.
+          clientAuthConfigured:
+            Boolean(process.env.GOOGLE_CLIENT_ID) && Boolean(process.env.GOOGLE_CLIENT_SECRET),
         },
       }
     )

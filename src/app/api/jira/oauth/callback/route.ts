@@ -80,8 +80,11 @@ export async function GET(req: NextRequest) {
     // status is recorded.
     return failConnect('token_exchange_failed', 'error', 'Jira OAuth token exchange failed', {
       httpStatus: tokenRes.status,
-      clientIdPresent: Boolean(process.env.ATLASSIAN_CLIENT_ID),
-      clientSecretPresent: Boolean(process.env.ATLASSIAN_CLIENT_SECRET),
+      // Merged into one boolean because a field named `clientSecretPresent` matches
+      // sanitizeDetails()'s credential-key regex and would persist as '[redacted]' —
+      // which says nothing about whether the secret is actually set.
+      clientAuthConfigured:
+        Boolean(process.env.ATLASSIAN_CLIENT_ID) && Boolean(process.env.ATLASSIAN_CLIENT_SECRET),
     })
   }
 

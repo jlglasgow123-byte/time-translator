@@ -27,7 +27,9 @@ async function jiraSearchJql(creds: JiraCredentials, jql: string, nextPageToken?
     headers: { Authorization: `Bearer ${creds.accessToken}`, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`Jira search error ${res.status}: ${await res.text()}`)
+  // Status only, not the body — see the note in /api/jira/worklogs. Jira echoes the JQL
+  // (which contains the user's Atlassian accountId) and `message` is not sanitized.
+  if (!res.ok) throw new Error(`Jira search error ${res.status}`)
   return res.json()
 }
 

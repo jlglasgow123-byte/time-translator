@@ -78,11 +78,17 @@ export async function POST(request: NextRequest) {
   // route that means the money moved at Stripe but entitlement never changed — the
   // user is charged and not upgraded, or cancels and keeps access. Every write below
   // goes through here so that can no longer happen unnoticed.
+  // 'written'   — the entitlement changed.
+  // 'error'     — the write failed. Likely transient, so worth a Stripe retry.
+  // 'no_rows'   — no error, but no profile matched. Retrying cannot fix a row that does
+  //               not exist, so callers decide per event type whether to retry or ack.
+  type ProfileUpdateOutcome = 'written' | 'error' | 'no_rows'
+
   async function applyProfileUpdate(
     update: Record<string, unknown>,
     match: { column: 'user_id' | 'stripe_customer_id'; value: string },
     context: { errorCode: string; userId?: string }
-  ): Promise<boolean> {
+  ): Promise<ProfileUpdateOutcome> {
     // `.select()` is load-bearing: an UPDATE matching no row is NOT an error, so
     // checking `error` alone cannot tell "wrote it" from "wrote nothing". We need the
     // affected-row count to know the entitlement actually changed.
@@ -109,7 +115,7 @@ export async function POST(request: NextRequest) {
           dbCode: (error as { code?: string }).code,
         },
       })
-      return false
+      return 'error'
     }
 
     if (!data || data.length === 0) {
@@ -131,16 +137,22 @@ export async function POST(request: NextRequest) {
           fields: Object.keys(update).join(','),
         },
       })
-      return false
+      return 'no_rows'
     }
 
-    return true
+    return 'written'
   }
 
-  // Set when an entitlement write fails. We return 500 so Stripe retries the event
-  // rather than acking a payment whose upgrade never landed — the daily error digest
-  // could otherwise leave a paying user un-upgraded for up to a day. Stripe events are
-  // replayed against the same handler, and every write here is idempotent.
+  // Set when an entitlement write fails in a way a retry could plausibly fix. We return
+  // 500 so Stripe retries rather than acking a payment whose upgrade never landed — the
+  // daily error digest could otherwise leave a paying user un-upgraded for up to a day.
+  // Stripe replays events against the same handler and every write here is an absolute
+  // assignment, so replay is safe.
+  //
+  // Deliberately NOT set for a `no_rows` result on `invoice.payment_failed` — see the
+  // comment on that case. Retrying a row that does not exist never succeeds, and Stripe
+  // disables an endpoint that keeps failing, which would take `checkout.session.completed`
+  // down with it and stop real upgrades from landing.
   let writeFailed = false
 
   switch (event.type) {
@@ -169,13 +181,15 @@ export async function POST(request: NextRequest) {
         break
       }
 
-      if (!await applyProfileUpdate({
+      // Matched on our own metadata.user_id, so zero rows is genuinely anomalous —
+      // the user paid and we cannot find their profile. Retry is warranted.
+      if (await applyProfileUpdate({
         stripe_customer_id: session.customer as string,
         stripe_subscription_id: session.subscription as string,
         subscription_tier: tier,
         subscription_status: 'active',
         tier,
-      }, { column: 'user_id', value: userId }, { errorCode: 'stripe_activation_write_failed', userId })) {
+      }, { column: 'user_id', value: userId }, { errorCode: 'stripe_activation_write_failed', userId }) !== 'written') {
         writeFailed = true
       }
 
@@ -207,14 +221,14 @@ export async function POST(request: NextRequest) {
       const paidTier = sub.metadata?.tier === 'max_power' ? 'max_power' : 'paid_single_user'
       const isActive = sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due'
 
-      if (!await applyProfileUpdate({
+      if (await applyProfileUpdate({
         subscription_status: sub.status,
         subscription_tier: isActive ? paidTier : 'free_trial',
         tier: isActive ? paidTier : 'free_trial',
         subscription_current_period_end: sub.items?.data?.[0]?.current_period_end
           ? new Date(sub.items.data[0].current_period_end * 1000).toISOString()
           : null,
-      }, { column: 'user_id', value: userId }, { errorCode: 'stripe_subscription_update_write_failed', userId })) {
+      }, { column: 'user_id', value: userId }, { errorCode: 'stripe_subscription_update_write_failed', userId }) !== 'written') {
         writeFailed = true
       }
       break
@@ -225,12 +239,12 @@ export async function POST(request: NextRequest) {
       const userId = sub.metadata?.user_id
       if (!userId) break
 
-      if (!await applyProfileUpdate({
+      if (await applyProfileUpdate({
         subscription_status: 'canceled',
         subscription_tier: 'free_trial',
         tier: 'free_trial',
         stripe_subscription_id: null,
-      }, { column: 'user_id', value: userId }, { errorCode: 'stripe_cancellation_write_failed', userId })) {
+      }, { column: 'user_id', value: userId }, { errorCode: 'stripe_cancellation_write_failed', userId }) !== 'written') {
         writeFailed = true
       }
       break
@@ -241,9 +255,17 @@ export async function POST(request: NextRequest) {
       const customerId = invoice.customer as string
       if (!customerId) break
 
-      if (!await applyProfileUpdate({
+      // The ONLY handler that matches on stripe_customer_id rather than our own
+      // metadata.user_id. That column is populated solely by checkout.session.completed,
+      // so for a customer created outside the app — or one whose checkout event was
+      // lost — there is permanently no row to match. Retrying that forever would make
+      // Stripe disable the endpoint, taking checkout.session.completed down with it and
+      // stopping real upgrades. So `no_rows` is acked (still logged at error severity
+      // for manual reconciliation); only a genuine write error is retried.
+      const outcome = await applyProfileUpdate({
         subscription_status: 'past_due',
-      }, { column: 'stripe_customer_id', value: customerId }, { errorCode: 'stripe_past_due_write_failed' })) {
+      }, { column: 'stripe_customer_id', value: customerId }, { errorCode: 'stripe_past_due_write_failed' })
+      if (outcome === 'error') {
         writeFailed = true
       }
       break

@@ -27,7 +27,10 @@ async function jiraSearchJql(creds: JiraCredentials, jql: string, nextPageToken?
     headers: { Authorization: `Bearer ${creds.accessToken}`, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`Jira search error ${res.status}: ${await res.text()}`)
+  // Status only, not the body. Jira echoes the JQL back in error responses, and this
+  // JQL embeds the user's Atlassian accountId — captureAppError persists `message`
+  // WITHOUT running it through sanitizeDetails(), so the body must not go in here.
+  if (!res.ok) throw new Error(`Jira search error ${res.status}`)
   return res.json()
 }
 
@@ -84,7 +87,9 @@ export async function GET(req: NextRequest) {
       nextPageToken = data.nextPageToken
       if (!nextPageToken || !data.issues?.length) break
     }
-    if (issues.length >= ISSUE_CAP) capped = true
+    // Truncated only if we stopped at the cap AND Jira had more to give. Testing the
+    // count alone reported truncation to anyone with exactly ISSUE_CAP issues.
+    if (issues.length >= ISSUE_CAP && nextPageToken) capped = true
 
     const worklogs: WorklogEntry[] = []
 
@@ -125,7 +130,12 @@ export async function GET(req: NextRequest) {
       action: 'fetch_jira_worklogs',
       status: 'failed',
       errorCode: 'jira_worklogs_fetch_failed',
-      details: { start, end },
+      // `start`/`end` are unvalidated query params — record them only if they are
+      // actually ISO dates, so arbitrary input never lands in an event row.
+      details: {
+        start: /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : '(malformed)',
+        end: /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : '(malformed)',
+      },
     })
     return NextResponse.json(
       safeErrorResponse(err, 'Could not fetch your Jira worklogs. Please try again.'),
