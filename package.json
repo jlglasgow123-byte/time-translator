@@ -9,6 +9,8 @@
     "build": "next build",
     "start": "next start",
     "security:check": "node scripts/security-check.mjs",
+    "orphan:check": "node scripts/orphan-check.mjs",
+    "billing:check": "node scripts/billing-check.mjs",
     "jira:check": "node scripts/jira-projects-check.mjs"
   },
   "dependencies": {

@@ -17,7 +17,6 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['node-ical', 'temporal-polyfill', 'rrule-temporal'],
   outputFileTracingIncludes: {
     '/api/process': ['./node_modules/temporal-polyfill/**/*', './node_modules/rrule-temporal/**/*'],
-    '/api/parse-ics': ['./node_modules/temporal-polyfill/**/*', './node_modules/rrule-temporal/**/*'],
   },
   async headers() {
     return [
