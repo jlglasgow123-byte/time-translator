@@ -1,8 +1,12 @@
 # Time Translator — Claude Code Guidelines
 
+## P0 — NEVER, EVER PUT "CORDEL" ANYWHERE IN THIS PROJECT
+
+**This is Jasmine's personal hobby project, fully separate from her employer. This is the single highest-priority rule in this file — it overrides everything else.** The word "Cordel" (or any other reference to that employer) must never appear anywhere in this repository or on the live site — not in code, comments, database migrations, documentation, commit messages, the changelog, the license, brand materials, or anything said in conversation about this project. If a reference to "a work account," "an employer," or similar is ever needed for context (e.g. explaining why the Claude Artifact tool is off-limits here), describe it generically and never name it. If you ever encounter an existing reference to Cordel in this project, remove it immediately without waiting to be asked.
+
 ## NEVER publish Claude Artifacts for this project
 
-**Do not use the Claude Artifact tool (the Artifacts gallery that lives in the Claude account) for anything in this project — ever.** This repo is linked to a *work* Claude account (Cordel), and a Time Translator artifact published there lands in the wrong account's gallery. The only artifacts that belong in that account are Cordel-related.
+**Do not use the Claude Artifact tool (the Artifacts gallery that lives in the Claude account) for anything in this project — ever.** This repo is linked to a *work* Claude account, and a Time Translator artifact published there lands in the wrong account's gallery. That account's gallery is reserved for work-related artifacts only.
 
 **This is not a ban on HTML or rendered documents.** When a shareable or rendered document is wanted (a plan, a report, a branded page, a mockup), **write it as a file in this repo** (e.g. `LAUNCH_PLAN.html`) with the `Write` tool — a self-contained file the user opens in a browser. That is always allowed. What is forbidden is calling the Artifact/publish tool that hosts it under the Claude account. No exceptions.
 
@@ -47,19 +51,21 @@ Three agents own the workflow: **product-manager** (requirements/scope), **softw
 
 1. Make the requested changes.
 2. Summarise what was changed and ask: **"Do you want the technical-reviewer agent to review these changes?"** Ask this on its own — do not combine it with the push question.
-3. **If Yes:** run the full review process before anything else:
-   a. Run the technical-reviewer agent on the changes.
-   b. Present its report to Jasmine, findings grouped by severity.
-   c. Jasmine decides which findings to act on.
-   d. Make any changes she accepts, and summarise what was changed.
-   Only when the review cycle is finished, move to step 4.
+3. **If Yes:** run the technical-reviewer agent, then sort every finding into exactly one of two buckets — never a flat list:
+   - **Fix now (critical)** — actively broken, unsafe, or would ship a bug. Present these to Jasmine plainly; if she agrees, fix and fold into the same commit before moving on.
+   - **Handover (everything else)** — not urgent enough to hold up this push. Do **not** fix these in this thread. Instead write them to `Logs/review-handover.md` (overwrite the file each time — it always holds only the latest review's leftovers, not an accumulating history), with each item structured as:
+     - **What was reviewed** — the body of work this finding is about
+     - **Issue** — plain-English description of the problem
+     - **Priority** — P1 (do soon) through P5 (nice to have)
+     - **Recommended fix** — concrete enough that a brand-new conversation with no memory of this one could act on it immediately
+   Print the full handover list on screen in the same message (same structure as above, per item) — do not just say the file was written and leave it there. The file is for reopening in a fresh conversation later; the on-screen version is so Jasmine can read it right now without opening anything.
    **If No:** go straight to step 4.
 4. Ask: **"Should I push the changes?"** and wait for Jasmine to say "Push".
 5. Run `npm run build` — must pass clean.
 6. Update `CHANGELOG.md` (see below).
 7. `git commit && git push` — do not ask again, just do it.
 
-Never push without asking first. Never leave changes uncommitted after Jasmine says Push.
+Never push without asking first. Never leave changes uncommitted after Jasmine says Push. Never let non-critical review findings delay a push — they go to the handover file, not into this thread's fix list.
 
 ## Migrations
 

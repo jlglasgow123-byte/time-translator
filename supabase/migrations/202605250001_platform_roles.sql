@@ -1,5 +1,5 @@
 -- Rename is_admin → is_platform_admin and add is_developer.
--- is_platform_admin: full platform access (Jasmine). Gates billing, user PII, and all admin pages.
+-- is_platform_admin: full platform access (Jessica). Gates billing, user PII, and all admin pages.
 -- is_developer: collaborator access. Same log/event visibility but a distinct role for future ACL splits.
 
 alter table public.profiles

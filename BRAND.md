@@ -2,7 +2,7 @@
 
 > Reconstructed from the app logo (the original brand document was lost). This captures the colours, typography, and vibe the logo already expresses, so all future assets stay consistent. If the original is ever found and differs, that one wins — reconcile and note it here.
 
-**Owner:** Jasmine Glasgow
+**Owner:** Jessica Baker
 **Created:** 2026-08-03
 **Source:** the Time Translator app icon (dark-teal squircle, aqua→mint gradient clock with a speech-bubble tail, split light/dark ground, rounded wordmark).
 

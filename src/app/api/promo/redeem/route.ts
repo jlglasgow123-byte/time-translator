@@ -21,7 +21,7 @@ async function sendMilestoneEmail(count: number, codeName: string) {
       to: NOTIFY_EMAIL,
       subject: `🎉 ${count} people have used your ${codeName} promo code!`,
       html: `
-        <p>Hi Jasmine,</p>
+        <p>Hi Jessica,</p>
         <p>Your promo code <strong>${codeName}</strong> has just been redeemed by its <strong>${count}th user</strong>.</p>
         <p>The campaign is working — keep sharing!</p>
         <p>— Time Translator</p>

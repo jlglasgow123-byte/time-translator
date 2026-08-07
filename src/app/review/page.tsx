@@ -185,7 +185,7 @@ export default function ReviewPage() {
     setCatchAllMappings(mappings)
     const existing = loadFormConfig()
     saveFormConfig({
-      calendarName: existing?.calendarName ?? 'Jasmine: Cordel',
+      calendarName: existing?.calendarName ?? 'Jessica: Work',
       timezone: existing?.timezone ?? 'Australia/Sydney',
       defaultProjectKey: existing?.defaultProjectKey ?? '',
       skipRules: existing?.skipRules ?? DEFAULT_SKIP_RULES,
@@ -199,7 +199,7 @@ export default function ReviewPage() {
     setSkipRules(rules)
     const existing = loadFormConfig()
     saveFormConfig({
-      calendarName: existing?.calendarName ?? 'Jasmine: Cordel',
+      calendarName: existing?.calendarName ?? 'Jessica: Work',
       timezone: existing?.timezone ?? 'Australia/Sydney',
       defaultProjectKey: existing?.defaultProjectKey ?? '',
       skipRules: rules,
