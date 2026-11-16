@@ -580,7 +580,8 @@ function SettingsInner() {
                   <p className="text-base font-extrabold text-red-900">No default Jira project set</p>
                   <p className="mt-1 text-sm text-red-900">
                     Your meetings can&apos;t be matched to Jira tickets until you choose one. Only events with a
-                    ticket number in the title will be matched.
+                    ticket number in the title will be matched, and searching for a ticket by name will only find
+                    tickets you&apos;ve opened recently in Jira.
                   </p>
                   {creds.connected && (
                     <button

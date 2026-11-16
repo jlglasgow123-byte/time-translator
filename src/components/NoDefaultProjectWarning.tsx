@@ -59,7 +59,8 @@ export function NoDefaultProjectWarning({ onResolvedKey, className = '' }: Props
           <p className="mt-1 text-sm leading-6 text-red-900">
             Time Translator can&apos;t match your meetings to Jira tickets until you choose one. Only events with
             a ticket number in the title (like <span className="font-mono">ABC-123</span>) will be matched —
-            everything else will come back unmatched.
+            everything else will come back unmatched. Searching for a ticket by name will also only find tickets
+            you&apos;ve opened recently in Jira.
           </p>
           <Link
             href="/settings?pick_project=1"
