@@ -251,6 +251,7 @@ export function ReviewTable({
                       key={entry.id}
                       entry={entry}
                       jiraMatch={jiraMatchesByWorkEntryId[entry.id] ?? EMPTY_JIRA_MATCH}
+                      defaultProjectKey={defaultProjectKey}
                       onJiraKeyChange={onJiraKeyChange}
                       onJiraKeyBlur={onJiraKeyBlur}
                       onJiraSelect={onJiraSelect}
