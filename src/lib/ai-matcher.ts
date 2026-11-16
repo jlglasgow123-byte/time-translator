@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { CalendarEvent, JiraTicket, CatchAllMapping, LearnedMapping, MatchSource, WorkEntry, Confidence, WorkEntryProcessingResult } from '@/types'
 import { formatTime, formatDuration } from './timezone'
 import { captureAppEvent, captureAppError } from './observability'
+import { CLOSED_TICKET_GRACE_DAYS } from './jira-client'
 
 const JIRA_KEY_RE = /\b([A-Z]{2,6}-\d+)\b/i
 
@@ -654,12 +655,19 @@ function buildPrompt(events: CalendarEvent[], tickets: JiraTicket[], defaultProj
   // the rules below tell the model the values are "To Do"/"In Progress"/"Done", so
   // emitting "Shipped" or "Parked" here would make the prompt misdescribe its own
   // input — worse than sending no status at all.
-  const ticketList = relevantTickets.map(t => (
-    t.statusCategory
-      ? { key: t.key, summary: t.summary, status: t.statusCategory }
-      : { key: t.key, summary: t.summary }
-  ))
-  const eventList = events.map(e => ({ uid: e.uid, title: e.title, durationSeconds: e.durationSeconds }))
+  //
+  // `opened` / `closed` let the model judge whether a ticket was active on each event's
+  // own date — essential when logging retrospectively, where "open today" says nothing
+  // about what was live at the time. Omitted when unknown (e.g. tickets looked up
+  // individually by key), and the rules tell the model that means "no signal".
+  const ticketList = relevantTickets.map(t => ({
+    key: t.key,
+    summary: t.summary,
+    ...(t.statusCategory ? { status: t.statusCategory } : {}),
+    ...(t.createdDate ? { opened: t.createdDate } : {}),
+    ...(t.closedDate ? { closed: t.closedDate } : {}),
+  }))
+  const eventList = events.map(e => ({ uid: e.uid, date: e.startLocal.slice(0, 10), title: e.title, durationSeconds: e.durationSeconds }))
 
   // Build a concise learned-history hint for events in this batch
   const eventTitlesInBatch = new Set(events.map(e => e.title.trim().toLowerCase()))
@@ -673,7 +681,7 @@ function buildPrompt(events: CalendarEvent[], tickets: JiraTicket[], defaultProj
 
   return `Match each calendar event to the most relevant Jira ticket.
 
-${defaultProjectKey ? `Default project key: ${defaultProjectKey}\n` : ''}Available tickets (mostly open; recently-closed ones are included because time is often logged after the work finished):
+${defaultProjectKey ? `Default project key: ${defaultProjectKey}\n` : ''}Available tickets (tickets that existed around the dates of these events, including ones since closed, because time is often logged after the work finished):
 ${JSON.stringify(ticketList, null, 2)}
 ${learnedSection}
 Calendar events to match:
@@ -684,7 +692,10 @@ Rules:
 - If the event relates to general project work but no specific ticket is clear, return the most relevant ticket with MEDIUM confidence.
 - If you cannot make a reasonable match, pick the closest ticket and return LOW confidence.
 - Only use keys from the provided ticket list. Do not invent keys.
-- Where a ticket has a "status" field it is the Jira status category: "To Do" or "In Progress" means open, "Done" means closed. If an open and a closed ticket fit an event equally well, prefer the open one. Only pick a "Done" ticket when it is clearly the better match. Tickets with no "status" field carry no open/closed signal — judge them on relevance alone.
+- Each event has a "date" (YYYY-MM-DD). Tickets may have "opened" and "closed" dates (YYYY-MM-DD). A ticket is ACTIVE for an event if it was opened on or before the event's date AND either has no "closed" date or was closed no more than ${CLOSED_TICKET_GRACE_DAYS} days before the event's date (time is often logged shortly after a ticket is closed, so a ticket closed a few days before the event still counts as active).
+- Judge relevance first, then use activity: when an active and an inactive ticket fit an event similarly well, choose the active one. Only choose an inactive ticket (opened after the event, or closed more than ${CLOSED_TICKET_GRACE_DAYS} days before it) when it is clearly the better match, and then use no higher than MEDIUM confidence.
+- The current "status" field ("To Do", "In Progress", "Done") describes the ticket today, not on the event's date — do not penalise a ticket for being "Done" now if it was active on the event's date.
+- Tickets with no "opened"/"closed" dates carry no activity signal — judge them on relevance alone.
 
 Return a JSON array. Each item must have exactly these fields:
 {

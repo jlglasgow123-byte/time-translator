@@ -54,15 +54,85 @@ function sanitiseForTextSearch(query: string): string {
     .trim()
 }
 
+// Jira datetimes look like "2026-09-14T10:22:31.000+0100". Only the calendar date is
+// used (for "was this ticket active on the event's day"), so keep the first 10 chars
+// and drop anything that doesn't look like a date rather than passing junk on.
+function toIsoDate(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const d = value.slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : undefined
+}
+
 function parseIssues(issues: Record<string, unknown>[]): JiraTicket[] {
-  return issues.map((issue: Record<string, unknown>) => ({
-    key: issue.key as string,
-    summary: (issue.fields as Record<string, unknown>)?.summary as string ?? '',
-    status: ((issue.fields as Record<string, unknown>)?.status as Record<string, unknown>)?.name as string ?? '',
-    statusCategory: (((issue.fields as Record<string, unknown>)?.status as Record<string, unknown>)
-      ?.statusCategory as Record<string, unknown>)?.name as string ?? '',
-    issueType: ((issue.fields as Record<string, unknown>)?.issuetype as Record<string, unknown>)?.name as string ?? '',
-  }))
+  return issues.map((issue: Record<string, unknown>) => {
+    const fields = (issue.fields as Record<string, unknown>) ?? {}
+    const statusCategory = ((fields.status as Record<string, unknown>)
+      ?.statusCategory as Record<string, unknown>)?.name as string ?? ''
+    return {
+      key: issue.key as string,
+      summary: fields.summary as string ?? '',
+      status: (fields.status as Record<string, unknown>)?.name as string ?? '',
+      statusCategory,
+      issueType: (fields.issuetype as Record<string, unknown>)?.name as string ?? '',
+      createdDate: toIsoDate(fields.created),
+      // statuscategorychangedate is the last move between To Do / In Progress / Done.
+      // Only meaningful as a "closed on" date when the ticket is currently Done.
+      closedDate: statusCategory === 'Done' ? toIsoDate(fields.statuscategorychangedate) : undefined,
+    }
+  })
+}
+
+// --- Period-aware ticket window ---
+//
+// Time is often logged weeks or months after the work happened. The ticket list must
+// reflect what was alive WHEN THE WORK HAPPENED, not what is open today.
+//
+// A ticket counts as active for an event if it was created on or before the event's
+// day and was either still open or closed no more than CLOSED_TICKET_GRACE_DAYS before
+// it — tickets are often closed before the last of their time is logged.
+export const CLOSED_TICKET_GRACE_DAYS = 14
+// Floor for the closed-ticket window, measured back from today. Keeps the previous
+// behaviour (45 days of recently-closed tickets) for ordinary current-week imports.
+const RECENTLY_CLOSED_DAYS_FROM_TODAY = 45
+
+export interface TicketPeriod {
+  /** Earliest event date in the import, YYYY-MM-DD (user's local time). */
+  start: string
+  /** Latest event date in the import, YYYY-MM-DD (user's local time). */
+  end: string
+}
+
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(`${isoDate}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+// The date span of the events being imported. Null when no event has a usable date,
+// in which case the caller falls back to the today-relative window.
+export function ticketPeriodFromEvents(events: { startLocal: string; autoSkipped?: boolean }[]): TicketPeriod | null {
+  const dates = events
+    .filter(e => !e.autoSkipped)
+    .map(e => e.startLocal.slice(0, 10))
+    .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort()
+  if (dates.length === 0) return null
+  return { start: dates[0], end: dates[dates.length - 1] }
+}
+
+function ticketWindowJql(period: TicketPeriod | null | undefined): string {
+  const todayFloor = `statusCategoryChangedDate >= -${RECENTLY_CLOSED_DAYS_FROM_TODAY}d`
+  if (!period) {
+    return `(statusCategory not in (Done) OR (statusCategory = Done AND ${todayFloor}))`
+  }
+  // Closed tickets: anything closed within the grace period before the import's first
+  // day, OR within the today-relative floor — whichever reaches further back. Every
+  // ticket closed after the period started was by definition alive during it.
+  const closedSince = addDays(period.start, -CLOSED_TICKET_GRACE_DAYS)
+  // Created by the end of the period's last day. JQL "<" a bare date means before
+  // midnight at the start of that day, so compare against the following day.
+  const createdBefore = addDays(period.end, 1)
+  return `created < "${createdBefore}" AND (statusCategory not in (Done) OR (statusCategory = Done AND (statusCategoryChangedDate >= "${closedSince}" OR ${todayFloor})))`
 }
 
 interface JiraSearchPage {
@@ -96,7 +166,7 @@ async function runJiraSearch(
   maxTickets = MAX_JIRA_TICKETS_PER_FETCH
 ): Promise<{ tickets: JiraTicket[]; truncated: boolean }> {
   const PAGE_SIZE = 100
-  const baseBody: Record<string, unknown> = { jql, maxResults: PAGE_SIZE, fields: ['summary', 'status', 'issuetype'] }
+  const baseBody: Record<string, unknown> = { jql, maxResults: PAGE_SIZE, fields: ['summary', 'status', 'issuetype', 'created', 'statuscategorychangedate'] }
   const isModern = url.endsWith('/search/jql')
 
   // Fetch page 1
@@ -143,15 +213,16 @@ async function runJiraSearch(
 const TICKET_CACHE_TTL_MS = 2 * 60 * 1000
 const ticketCache = new Map<string, { expiresAt: number; result: { tickets: JiraTicket[]; truncated: boolean } }>()
 
-function ticketCacheKey(creds: JiraCredentials, keys: string[], issueTypes: string[], maxTickets: number): string {
-  return [base(creds), [...keys].sort().join(','), [...issueTypes].sort().join(','), maxTickets].join('|')
+function ticketCacheKey(creds: JiraCredentials, keys: string[], issueTypes: string[], maxTickets: number, period?: TicketPeriod | null): string {
+  return [base(creds), [...keys].sort().join(','), [...issueTypes].sort().join(','), maxTickets, period ? `${period.start}..${period.end}` : 'now'].join('|')
 }
 
 export async function fetchOpenTickets(
   creds: JiraCredentials,
   projectKeys: string | string[],
   issueTypes: string[] = [],
-  maxTickets = MAX_JIRA_TICKETS_PER_FETCH
+  maxTickets = MAX_JIRA_TICKETS_PER_FETCH,
+  period?: TicketPeriod | null
 ): Promise<{ tickets: JiraTicket[]; truncated: boolean }> {
   const keys = (Array.isArray(projectKeys) ? projectKeys : [projectKeys]).filter(Boolean)
 
@@ -159,7 +230,7 @@ export async function fetchOpenTickets(
   // rather than sending a broken query.
   if (keys.length === 0) return { tickets: [], truncated: false }
 
-  const cacheKey = ticketCacheKey(creds, keys, issueTypes, maxTickets)
+  const cacheKey = ticketCacheKey(creds, keys, issueTypes, maxTickets, period)
   const cached = ticketCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.result
@@ -169,14 +240,15 @@ export async function fetchOpenTickets(
   const issueTypeClause = issueTypes.length
     ? ` AND issuetype in (${issueTypes.map(type => `"${escapeJqlLiteral(type)}"`).join(', ')})`
     : ''
-  // Include recently-closed tickets: time is often logged retrospectively against
-  // work that has since been completed. Keyed on statusCategoryChangedDate, not
-  // resolutiondate — many workflows move an issue to Done without setting a
-  // resolution, leaving resolutiondate null and the ticket invisible.
-  // Bounded to 45 days so a long-history project can't push the result set past
+  // Include closed tickets that were alive during the period being logged (see
+  // ticketWindowJql): time is often logged retrospectively against work that has
+  // since been completed. Keyed on statusCategoryChangedDate, not resolutiondate —
+  // many workflows move an issue to Done without setting a resolution, leaving
+  // resolutiondate null and the ticket invisible. The window is bounded by the
+  // import's own dates so a long-history project can't push the result set past
   // MAX_JIRA_TICKETS_PER_FETCH, which would silently truncate open tickets in
   // favour of closed ones (ORDER BY updated DESC).
-  const jql = `project in (${projectList}) AND (statusCategory not in (Done) OR (statusCategory = Done AND statusCategoryChangedDate >= -45d))${issueTypeClause} ORDER BY updated DESC`
+  const jql = `project in (${projectList}) AND ${ticketWindowJql(period)}${issueTypeClause} ORDER BY updated DESC`
   const modernUrl = `${base(creds)}/rest/api/3/search/jql`
   const legacyUrl = `${base(creds)}/rest/api/3/search`
 

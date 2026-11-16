@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { parseIcs, getCalendarName } from '@/lib/ics-parser'
-import { fetchOpenTickets, fetchIssue } from '@/lib/jira-client'
+import { fetchOpenTickets, fetchIssue, ticketPeriodFromEvents } from '@/lib/jira-client'
 import { countEventsRequiringAi, matchEvents } from '@/lib/ai-matcher'
 import { JIRA_CONNECTION_REQUIRED_MESSAGE, getJiraCreds, isCredsError, credsErrorResponse } from '@/lib/supabase/get-jira-creds'
 import { createClient } from '@/lib/supabase/server'
@@ -233,7 +233,9 @@ export async function POST(req: NextRequest) {
     }
 
     // Entitlement already fetched above — reuse it; just fetch tickets here
-    const ticketResult = await fetchOpenTickets(creds, Array.from(projectKeys), includedIssueTypes, MAX_JIRA_TICKETS_PER_FETCH)
+    // Ticket list reflects what was alive during the events' own dates, not today —
+    // matters for catch-up logging weeks or months after the fact.
+    const ticketResult = await fetchOpenTickets(creds, Array.from(projectKeys), includedIssueTypes, MAX_JIRA_TICKETS_PER_FETCH, ticketPeriodFromEvents(events))
     const entitlement = calendarEntitlement
     lap('fetchOpenTickets')
 

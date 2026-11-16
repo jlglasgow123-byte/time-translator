@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchOpenTickets, fetchIssue } from '@/lib/jira-client'
+import { fetchOpenTickets, fetchIssue, ticketPeriodFromEvents } from '@/lib/jira-client'
 import { countEventsRequiringAi, matchEvents } from '@/lib/ai-matcher'
 import { fetchGoogleCalendarEvents, getGoogleCalendarCreds } from '@/lib/google-calendar-client'
 import { JIRA_CONNECTION_REQUIRED_MESSAGE, getJiraCreds, isCredsError, credsErrorResponse } from '@/lib/supabase/get-jira-creds'
@@ -152,7 +152,9 @@ export async function POST(req: NextRequest) {
       for (const m of ev.title.matchAll(KEY_PREFIX_RE)) projectKeys.add(m[1].toUpperCase())
     }
 
-    const ticketResult = await fetchOpenTickets(creds, Array.from(projectKeys), includedIssueTypes, MAX_JIRA_TICKETS_PER_FETCH)
+    // Ticket list reflects what was alive during the events' own dates, not today —
+    // matters for catch-up logging weeks or months after the fact.
+    const ticketResult = await fetchOpenTickets(creds, Array.from(projectKeys), includedIssueTypes, MAX_JIRA_TICKETS_PER_FETCH, ticketPeriodFromEvents(events))
     const entitlement = calendarEntitlement
     lap('fetchOpenTickets', 'fetchJiraTicketsMs')
 

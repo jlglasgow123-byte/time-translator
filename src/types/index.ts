@@ -28,6 +28,10 @@ export interface JiraTicket {
    */
   statusCategory?: string
   issueType?: string
+  /** Date the ticket was created, YYYY-MM-DD. */
+  createdDate?: string
+  /** Date the ticket moved to Done, YYYY-MM-DD. Only set when currently Done. */
+  closedDate?: string
 }
 
 export type MatchType = 'equals' | 'contains' | 'not_contains'
