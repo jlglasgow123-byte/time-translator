@@ -15,6 +15,7 @@ import { SkipRulesEditor, ExistingIgnoreRules } from '@/components/upload/SkipRu
 import { LearnedMappingsEditor } from '@/components/upload/LearnedMappingsEditor'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
+import { NoDefaultProjectWarning } from '@/components/NoDefaultProjectWarning'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from '@/lib/jira-issue-types'
 // TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
 import { devImportTiming } from '@/lib/dev-import-timing'
@@ -307,6 +308,8 @@ export default function ReviewPage() {
             <p className="text-xs text-[#66747A]">You'll see a summary before anything is sent to Jira.</p>
           </div>
         </div>
+
+        <NoDefaultProjectWarning className="mb-6" onResolvedKey={key => setDefaultProjectKey(key || undefined)} />
 
         <Modal
           open={mappingModalOpen}

@@ -239,8 +239,12 @@ function deterministic(
 // `matched` map too, and must not run deterministic() twice.
 //
 // Gates applied, in order:
-//  1. `tickets.length === 0` — with no tickets matchEvents skips the AI entirely,
-//     so nothing is selected and no usage is charged.
+//  1. No tickets the model could actually pick from — nothing is selected and no
+//     usage is charged. Events left over after deterministic() never contain a
+//     Jira key (that would have matched them), so buildPrompt can only offer them
+//     tickets from the default project. No default project, or a default project
+//     with no tickets in the list, means the model would be sent an empty ticket
+//     list and can only answer "[]" — a wasted call that looks like a parse failure.
 //  2. `autoSkipped` events are excluded.
 //  3. Events resolved by deterministic() (Jira key in title, catch-all mapping rule,
 //     or learned history) never reach Anthropic.
@@ -258,17 +262,32 @@ function selectForAi(
   nonSkipped: CalendarEvent[]
   deterministicMatches: Map<string, { jiraKey: string; confidence: Confidence; reason: string; matchSource: MatchSource }>
   selected: CalendarEvent[]
+  aiSkipReason: AiSkipReason | null
 } {
   const nonSkipped = events.filter(e => !e.autoSkipped)
   const { matched, unmatched } = deterministic(nonSkipped, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
+  // Gate 1. Kept here rather than as an early return so `deterministicMatches` is
+  // still populated when there are no tickets — matchEvents relies on it to build
+  // its result rows either way.
+  const aiSkipReason = unmatched.length === 0 ? null : noTicketsReason(tickets, defaultProjectKey)
   return {
     nonSkipped,
     deterministicMatches: matched,
-    // Gate 1. Kept here rather than as an early return so `deterministicMatches` is
-    // still populated when there are no tickets — matchEvents relies on it to build
-    // its result rows either way.
-    selected: tickets.length === 0 ? [] : unmatched,
+    selected: aiSkipReason ? [] : unmatched,
+    aiSkipReason,
   }
+}
+
+export type AiSkipReason = 'no_tickets' | 'no_default_project' | 'no_tickets_in_default_project'
+
+// Why the model would have nothing to choose from, or null if it would. Must agree
+// with the ticket filter in buildPrompt (project prefix === default project).
+function noTicketsReason(tickets: JiraTicket[], defaultProjectKey: string): AiSkipReason | null {
+  if (tickets.length === 0) return 'no_tickets'
+  const project = defaultProjectKey.trim().toUpperCase()
+  if (!project) return 'no_default_project'
+  if (!tickets.some(t => t.key.split('-')[0].toUpperCase() === project)) return 'no_tickets_in_default_project'
+  return null
 }
 
 // The events that will actually be sent to the model. Thin wrapper over selectForAi.
@@ -322,7 +341,7 @@ export async function matchEvents(
   let clientUseSeq = 0
   // Single decision point — see selectForAi. matchEvents must NOT re-apply its own
   // gates on top of `unmatched`, or billing (which counts the same selection) diverges.
-  const { nonSkipped, deterministicMatches, selected: unmatched } =
+  const { nonSkipped, deterministicMatches, selected: unmatched, aiSkipReason } =
     selectForAi(events, tickets, catchAllMappings, learnedMappings, defaultProjectKey)
   const deterministicMs = Date.now() - tStart
 
@@ -519,19 +538,21 @@ export async function matchEvents(
     for (const matches of batchResults) {
       for (const m of matches) aiMatches.set(m.uid, m)
     }
-  } else if (tickets.length === 0 && nonSkipped.length > 0) {
-    // selectForAi zeroes the selection when there are no tickets, so `unmatched` is
-    // empty here by construction — report the pre-gate count for diagnostics.
+  } else if (aiSkipReason) {
+    // selectForAi zeroes the selection when the model would have no tickets to pick
+    // from, so `unmatched` is empty here by construction — report the pre-gate count.
     const details = {
+      reason: aiSkipReason,
       unmatchedCount: nonSkipped.length - deterministicMatches.size,
       ticketCount: tickets.length,
+      hasDefaultProject: Boolean(defaultProjectKey.trim()),
     }
-    console.warn('[ai-matcher] skipping AI matching because no Jira tickets were available', details)
-    captureAppEvent('AI matching skipped because no Jira tickets were available', 'warning', {
+    console.warn('[ai-matcher] skipping AI matching — no tickets for the model to choose from', details)
+    captureAppEvent('AI matching skipped — no tickets for the model to choose from', 'warning', {
       eventType: 'ai_match_skipped',
       action: 'ai_match',
-      status: 'skipped_no_tickets',
-      errorCode: 'ai_match_no_jira_tickets',
+      status: `skipped_${aiSkipReason}`,
+      errorCode: `ai_match_${aiSkipReason}`,
       details,
     })
   }
@@ -617,12 +638,12 @@ export async function matchEvents(
 function buildPrompt(events: CalendarEvent[], tickets: JiraTicket[], defaultProjectKey: string, learnedMappings: LearnedMapping[]): string {
   // Only include tickets from projects referenced in this batch — keeps prompt small
   // Empty when no default project is set — an empty entry would match nothing anyway.
-  const batchProjectKeys = new Set<string>(defaultProjectKey ? [defaultProjectKey] : [])
+  const batchProjectKeys = new Set<string>(defaultProjectKey ? [defaultProjectKey.trim().toUpperCase()] : [])
   const KEY_RE = /\b([A-Z]{2,6})-\d+\b/gi
   for (const ev of events) {
     for (const m of ev.title.matchAll(KEY_RE)) batchProjectKeys.add(m[1].toUpperCase())
   }
-  const relevantTickets = tickets.filter(t => batchProjectKeys.has(t.key.split('-')[0]))
+  const relevantTickets = tickets.filter(t => batchProjectKeys.has(t.key.split('-')[0].toUpperCase()))
   // Status is included because the ticket list now contains recently-closed tickets
   // as well as open ones (see fetchOpenTickets). Without it the model cannot tell
   // them apart and has no basis for preferring an open ticket.

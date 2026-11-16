@@ -7,7 +7,8 @@ import { createClient } from '@/lib/supabase/client'
 import type { CatchAllMapping, ImportMode, JiraConfig, SkipRule, WorkEntry, JiraMatchesByWorkEntryId, JiraMatch, AiUnavailableReason } from '@/types'
 import { SkipRulesEditor, ExistingIgnoreRules } from '@/components/upload/SkipRulesEditor'
 import { Button } from '@/components/ui/Button'
-import { saveSession, saveFormConfig, loadFormConfig, loadLearnedMappings } from '@/lib/storage'
+import { saveSession, saveFormConfig, loadFormConfig, loadLearnedMappings, setLocalDefaultProjectKey } from '@/lib/storage'
+import { NoDefaultProjectWarning } from '@/components/NoDefaultProjectWarning'
 import { toUserMessage } from '@/lib/errors'
 import { DEFAULT_SKIP_RULES } from '@/lib/skip-rules'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from '@/lib/jira-issue-types'
@@ -346,9 +347,14 @@ export default function UploadPage() {
         throw new Error(normalizeJiraConnectionError(message))
       }
 
+      // The server uses the account's saved project, which may differ from this
+      // browser's copy — adopt what it actually used.
+      const usedProjectKey = typeof data.defaultProjectKey === 'string' ? data.defaultProjectKey : defaultProjectKey
+      if (usedProjectKey !== defaultProjectKey) setLocalDefaultProjectKey(usedProjectKey)
+
       const config: JiraConfig = {
         jiraBaseUrl: '',
-        defaultProjectKey,
+        defaultProjectKey: usedProjectKey,
         timezone,
         calendarName: typeof data.calendarName === 'string' ? data.calendarName : '',
         catchAllMappings,
@@ -427,6 +433,8 @@ export default function UploadPage() {
             </div>
           </div>
         )}
+
+        <NoDefaultProjectWarning className="mb-6" onResolvedKey={setDefaultProjectKey} />
 
         {gcalConnected !== null && (
         <form className="space-y-7 rounded-[32px] border border-[#DCEEF5] bg-white/90 p-6 shadow-[0_18px_48px_rgba(38,51,58,0.06)]">

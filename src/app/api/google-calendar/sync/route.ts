@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/server'
 import { consumeAiUsage, refundAiUsage } from '@/lib/supabase/usage'
 import { completeImportRun, failImportRun, startImportRun } from '@/lib/supabase/import-runs'
 import { backfillLearnedMappings } from '@/lib/supabase/learned-mappings'
+import { resolveDefaultProject } from '@/lib/supabase/user-preferences'
 import { safeErrorResponse } from '@/lib/errors'
 import { DEFAULT_SKIP_RULES } from '@/lib/skip-rules'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from '@/lib/jira-issue-types'
@@ -61,7 +62,8 @@ export async function POST(req: NextRequest) {
     const catchAllMappings: CatchAllMapping[] = Array.isArray(body.catchAllMappings) ? body.catchAllMappings : []
     const skipRules: SkipRule[] = Array.isArray(body.skipRules) && body.skipRules.length ? body.skipRules : DEFAULT_SKIP_RULES
     const excludeWeekends = Boolean(body.excludeWeekends)
-    const defaultProjectKey: string = body.defaultProjectKey || ''
+    // Account value wins over whatever the browser sent — see resolveDefaultProject.
+    const defaultProjectKey = await resolveDefaultProject(supabase, user.id, body.defaultProjectKey)
     const includedIssueTypes: string[] = Array.isArray(body.includedIssueTypes) && body.includedIssueTypes.length
       ? body.includedIssueTypes
       : [...DEFAULT_INCLUDED_JIRA_ISSUE_TYPES]
@@ -323,6 +325,8 @@ export async function POST(req: NextRequest) {
       ticketsTruncated,
       aiUnavailable,
       aiUnavailableReason,
+      // The project actually used, so the browser can pick it up from the account.
+      defaultProjectKey,
     })
   } catch (err) {
     console.error('[/api/google-calendar/sync] unhandled error:', err)

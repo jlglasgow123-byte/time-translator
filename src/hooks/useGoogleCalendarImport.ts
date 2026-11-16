@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { saveSession, loadFormConfig } from '@/lib/storage'
+import { saveSession, loadFormConfig, setLocalDefaultProjectKey } from '@/lib/storage'
 import { toUserMessage } from '@/lib/errors'
 import { useImportStages } from '@/hooks/useImportStages'
 // TEMP TIMING DIAGNOSTIC — delete with src/lib/dev-import-timing.ts
@@ -94,9 +94,16 @@ export function useGoogleCalendarImport() {
       devImportTiming.setEventCount(Array.isArray(data.workEntries) ? data.workEntries.length : 0) // TEMP
       if (!res.ok) throw new Error(toUserMessage(data.error, 'Could not sync your Google Calendar. Please try again.'))
 
+      // The server uses the account's saved project, which may differ from this
+      // browser's copy — adopt what it actually used.
+      const usedProjectKey = typeof data.defaultProjectKey === 'string'
+        ? data.defaultProjectKey
+        : saved?.defaultProjectKey || ''
+      setLocalDefaultProjectKey(usedProjectKey)
+
       const config: JiraConfig = {
         jiraBaseUrl: '',
-        defaultProjectKey: saved?.defaultProjectKey || '',
+        defaultProjectKey: usedProjectKey,
         timezone: saved?.timezone || 'Australia/Sydney',
         calendarName: 'Google Calendar',
         catchAllMappings: saved?.catchAllMappings ?? [],

@@ -24,7 +24,8 @@ export async function deleteUserById(userId: string): Promise<{ error?: string }
     supabase.from('referrals').delete().or(`referred_user_id.eq.${userId},referrer_user_id.eq.${userId}`),
   ])
 
-  // Cascades: profiles, import_runs, import_event_traces, jira_worklogs, linked_calendars.
+  // Cascades: profiles, import_runs, import_event_traces, jira_worklogs, linked_calendars,
+  // user_preferences.
   // app_system_events nullifies user_id via SET NULL.
   const { error } = await supabase.auth.admin.deleteUser(userId)
   if (error) return { error: error.message }

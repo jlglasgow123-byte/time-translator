@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState, Suspense } from 'react'
+import { useCallback, useEffect, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
@@ -67,6 +67,19 @@ function SettingsInner() {
   const [prefsInitialized, setPrefsInitialized] = useState(false)
   const [prefsSaved, setPrefsSaved] = useState(false)
   const prefsFirstSaveRef = useRef(true)
+  // Default project is also saved to the account (see effects below).
+  const [serverPrefsLoaded, setServerPrefsLoaded] = useState(false)
+  const [projectSaveError, setProjectSaveError] = useState<string | null>(null)
+  // What the account currently holds; null = unknown / never saved (forces a save).
+  const lastServerProjectKeyRef = useRef<string | null>(null)
+  const pickerPromptedRef = useRef(false)
+  // A typed key waiting out the debounce (null = nothing pending), and the key
+  // currently being sent to the account (null = no request in flight).
+  const pendingProjectSaveRef = useRef<string | null>(null)
+  const inFlightProjectKeyRef = useRef<string | null>(null)
+  const projectSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savedFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mountedRef = useRef(false)
 
   // Account deletion
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -93,15 +106,133 @@ function SettingsInner() {
     setPrefsInitialized(true)
   }, [])
 
-  // Straight after connecting Jira, prompt for a default project — matching can't
-  // work without one. Skip if they already have one set. Kept separate from the
-  // load effect above so a URL change can't re-run the load and clobber an edit
-  // the user is part-way through typing.
+  // The default project lives on the account (so clearing browser data can't wipe
+  // it). The account value overrides the browser copy loaded above. If the account
+  // has never had one saved, adopt this browser's value into it once.
   useEffect(() => {
-    if (shouldPickProject && !loadFormConfig()?.defaultProjectKey) setShowProjectPicker(true)
-  }, [shouldPickProject])
+    let cancelled = false
+    fetch('/api/preferences')
+      .then(r => (r.ok ? r.json() : null))
+      .then(prefs => {
+        if (cancelled) return
+        if (prefs?.saved) {
+          const key = prefs.defaultProjectKey ?? ''
+          lastServerProjectKeyRef.current = key
+          setDefaultProjectKey(key)
+        } else if (prefs) {
+          // Never saved to the account: leave lastServerProjectKeyRef as null so the
+          // save effect pushes the browser's value (if any) up.
+          const local = loadFormConfig()?.defaultProjectKey ?? ''
+          if (!local) lastServerProjectKeyRef.current = ''
+        } else {
+          throw new Error('preferences unavailable')
+        }
+      })
+      .catch(() => {
+        // Couldn't read the account. Keep the browser value but don't push it up —
+        // it may be stale and would overwrite a good account value. Real edits
+        // still save.
+        if (!cancelled) lastServerProjectKeyRef.current = loadFormConfig()?.defaultProjectKey ?? ''
+      })
+      .finally(() => { if (!cancelled) setServerPrefsLoaded(true) })
+    return () => { cancelled = true }
+  }, [])
 
-  // Auto-save preferences whenever they change
+  // Straight after connecting Jira (or from the "no default project" warning),
+  // prompt for a default project — matching can't work without one. Waits for the
+  // account value so it doesn't pop up for someone who already has one. Only
+  // prompts once per visit so it can't re-open after they pick.
+  useEffect(() => {
+    if (!serverPrefsLoaded || pickerPromptedRef.current) return
+    pickerPromptedRef.current = true
+    if (shouldPickProject && !defaultProjectKey) setShowProjectPicker(true)
+  }, [shouldPickProject, serverPrefsLoaded, defaultProjectKey])
+
+  // Flash the "Saved" tick. Clearing it first means a second save within the 2s
+  // window re-runs the fade rather than sitting there already-visible.
+  const flashSaved = useCallback(() => {
+    if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current)
+    setPrefsSaved(false)
+    requestAnimationFrame(() => setPrefsSaved(true))
+    savedFlashTimerRef.current = setTimeout(() => setPrefsSaved(false), 2000)
+  }, [])
+  useEffect(() => () => { if (savedFlashTimerRef.current) clearTimeout(savedFlashTimerRef.current) }, [])
+
+  // Send the default project to the account. `keepalive` lets the request finish
+  // even if the user navigates away or closes the tab straight after. "Saved" is
+  // only shown once the account has confirmed the write.
+  const saveProjectToAccount = useCallback((key: string) => {
+    inFlightProjectKeyRef.current = key
+    fetch('/api/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultProjectKey: key }),
+      keepalive: true,
+    })
+      .then(async r => {
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(typeof data.error === 'string' ? data.error : 'Could not save your default project.')
+        lastServerProjectKeyRef.current = key
+        if (!mountedRef.current) return
+        setProjectSaveError(null)
+        flashSaved()
+      })
+      .catch(err => {
+        if (!mountedRef.current) return
+        setProjectSaveError(err instanceof Error ? err.message : 'Could not save your default project. Please try again.')
+      })
+      .finally(() => {
+        if (inFlightProjectKeyRef.current === key) inFlightProjectKeyRef.current = null
+      })
+  }, [flashSaved])
+
+  // Send any typed change that is still waiting out the debounce. Used when the
+  // user leaves the page (in-app navigation or closing the tab) so it isn't lost.
+  const flushPendingProjectSave = useCallback(() => {
+    if (pendingProjectSaveRef.current === null) return
+    const key = pendingProjectSaveRef.current
+    pendingProjectSaveRef.current = null
+    if (projectSaveTimerRef.current) clearTimeout(projectSaveTimerRef.current)
+    saveProjectToAccount(key)
+  }, [saveProjectToAccount])
+
+  useEffect(() => {
+    mountedRef.current = true
+    window.addEventListener('pagehide', flushPendingProjectSave)
+    return () => {
+      window.removeEventListener('pagehide', flushPendingProjectSave)
+      flushPendingProjectSave()
+      mountedRef.current = false
+    }
+  }, [flushPendingProjectSave])
+
+  // Typed changes to the default project: debounced, so the account isn't written
+  // on every keystroke. Skipped when the account already holds this value or it is
+  // already being sent (e.g. just picked from the list).
+  useEffect(() => {
+    if (!serverPrefsLoaded) return
+    if (defaultProjectKey === lastServerProjectKeyRef.current) return
+    if (defaultProjectKey === inFlightProjectKeyRef.current) return
+    pendingProjectSaveRef.current = defaultProjectKey
+    if (projectSaveTimerRef.current) clearTimeout(projectSaveTimerRef.current)
+    projectSaveTimerRef.current = setTimeout(() => {
+      pendingProjectSaveRef.current = null
+      saveProjectToAccount(defaultProjectKey)
+    }, 600)
+    return () => { if (projectSaveTimerRef.current) clearTimeout(projectSaveTimerRef.current) }
+  }, [serverPrefsLoaded, defaultProjectKey, saveProjectToAccount])
+
+  // Picking from the project list is a deliberate, final choice — save it at once
+  // rather than waiting out the typing debounce.
+  function handleProjectPicked(key: string) {
+    setShowProjectPicker(false)
+    pendingProjectSaveRef.current = null
+    if (projectSaveTimerRef.current) clearTimeout(projectSaveTimerRef.current)
+    setDefaultProjectKey(key)
+    saveProjectToAccount(key)
+  }
+
+  // Auto-save preferences to this browser whenever they change
   useEffect(() => {
     if (!prefsInitialized) return
     const existing = loadFormConfig()
@@ -113,19 +244,20 @@ function SettingsInner() {
       includedIssueTypes,
       excludeWeekends: existing?.excludeWeekends ?? false,
     })
+  }, [prefsInitialized, defaultProjectKey, timezone, includedIssueTypes])
+
+  // "Saved" tick for timezone / issue types, which live only in this browser and
+  // so are saved the moment they change. The default project is NOT flashed here —
+  // its tick comes from saveProjectToAccount, once the account confirms.
+  useEffect(() => {
+    if (!prefsInitialized) return
     // Don't flash on the initial hydration pass — only on real edits.
     if (prefsFirstSaveRef.current) {
       prefsFirstSaveRef.current = false
       return
     }
-    // Flash a "Saved" tick so the change is visibly acknowledged. Clearing it
-    // first means a second edit within the 2s window re-runs the fade rather
-    // than sitting there already-visible with no new confirmation.
-    setPrefsSaved(false)
-    const show = requestAnimationFrame(() => setPrefsSaved(true))
-    const timer = setTimeout(() => setPrefsSaved(false), 2000)
-    return () => { cancelAnimationFrame(show); clearTimeout(timer) }
-  }, [prefsInitialized, defaultProjectKey, timezone, includedIssueTypes])
+    flashSaved()
+  }, [prefsInitialized, timezone, includedIssueTypes, flashSaved])
 
   function toggleIssueType(issueType: string) {
     setIncludedIssueTypes(prev => {
@@ -440,10 +572,26 @@ function SettingsInner() {
                   </Button>
                 )}
               </div>
+              {projectSaveError && (
+                <p className="mt-1.5 text-xs font-medium text-red-700">{projectSaveError}</p>
+              )}
               {!defaultProjectKey && (
-                <p className="mt-1.5 text-xs font-medium text-amber-700">
-                  No default project set — events without a Jira key in the title can&apos;t be matched.
-                </p>
+                <div role="alert" className="mt-3 rounded-lg border-2 border-red-400 bg-red-50 p-4">
+                  <p className="text-base font-extrabold text-red-900">No default Jira project set</p>
+                  <p className="mt-1 text-sm text-red-900">
+                    Your meetings can&apos;t be matched to Jira tickets until you choose one. Only events with a
+                    ticket number in the title will be matched.
+                  </p>
+                  {creds.connected && (
+                    <button
+                      type="button"
+                      onClick={() => setShowProjectPicker(true)}
+                      className="mt-3 rounded-full bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 transition-colors"
+                    >
+                      Choose your default project
+                    </button>
+                  )}
+                </div>
               )}
               <p className="mt-1.5 text-xs text-gray-500">
                 Events without a Jira key in the title are AI-matched against <strong>this project only</strong>. To log
@@ -643,7 +791,7 @@ function SettingsInner() {
         <DefaultProjectModal
           currentKey={defaultProjectKey}
           onClose={() => setShowProjectPicker(false)}
-          onSelect={key => { setDefaultProjectKey(key); setShowProjectPicker(false) }}
+          onSelect={handleProjectPicked}
         />
       )}
 

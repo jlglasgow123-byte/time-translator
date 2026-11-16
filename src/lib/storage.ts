@@ -12,6 +12,7 @@ import type {
   AiUnavailableReason,
 } from '@/types'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from './jira-issue-types'
+import { DEFAULT_SKIP_RULES } from './skip-rules'
 
 const KEY = 'jtl:session'
 const FORM_KEY = 'jtl:form-config'
@@ -50,6 +51,25 @@ export function loadFormConfig(): StoredFormConfig | null {
   } catch {
     return null
   }
+}
+
+// Mirror the account's default project into the browser copy of the form config.
+// The account (user_preferences) is the source of truth; this copy only keeps the
+// pages that still read localStorage — e.g. review-page ticket search — in step.
+export function setLocalDefaultProjectKey(key: string): void {
+  const existing = loadFormConfig()
+  if (existing?.defaultProjectKey === key) return
+  saveFormConfig({
+    timezone: existing?.timezone ?? 'Australia/Sydney',
+    catchAllMappings: existing?.catchAllMappings ?? [],
+    // No saved config yet: seed the normal defaults rather than an empty rule list,
+    // which other pages would read as "the user deleted every skip rule".
+    skipRules: existing?.skipRules ?? DEFAULT_SKIP_RULES,
+    includedIssueTypes: existing?.includedIssueTypes,
+    excludeWeekends: existing?.excludeWeekends ?? false,
+    ...(existing?.calendarName ? { calendarName: existing.calendarName } : {}),
+    defaultProjectKey: key,
+  })
 }
 
 type LegacyWorkEntry = WorkEntry & JiraMatch

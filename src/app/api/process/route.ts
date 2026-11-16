@@ -10,6 +10,7 @@ import { DEFAULT_SKIP_RULES } from '@/lib/skip-rules'
 import { DEFAULT_INCLUDED_JIRA_ISSUE_TYPES } from '@/lib/jira-issue-types'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { backfillLearnedMappings } from '@/lib/supabase/learned-mappings'
+import { resolveDefaultProject } from '@/lib/supabase/user-preferences'
 import { safeErrorResponse } from '@/lib/errors'
 import { captureAppError, captureAppEvent, requestIdFromHeaders } from '@/lib/observability'
 import { getUserEntitlement } from '@/lib/billing/entitlements'
@@ -63,7 +64,8 @@ export async function POST(req: NextRequest) {
     const learnedRaw = (formData.get('learnedMappings') as string) ?? '[]'
     const skipRulesRaw = (formData.get('skipRules') as string) ?? ''
     const excludeWeekends = formData.get('excludeWeekends') === 'true'
-    const defaultProjectKey = (formData.get('defaultProjectKey') as string) ?? ''
+    // Account value wins over whatever the browser sent — see resolveDefaultProject.
+    const defaultProjectKey = await resolveDefaultProject(supabase, user.id, formData.get('defaultProjectKey'))
     const includedIssueTypesRaw = (formData.get('includedIssueTypes') as string) ?? '[]'
 
     // Jira credentials are only needed for the jira workflow — fetch once and reuse below
@@ -465,7 +467,7 @@ export async function POST(req: NextRequest) {
     })
 
     lap('TOTAL (about to respond)')
-    return NextResponse.json({ workEntries, jiraMatchesByWorkEntryId, mode: 'jira', calendarName, ticketsTruncated, aiUnavailable, aiUnavailableReason })
+    return NextResponse.json({ workEntries, jiraMatchesByWorkEntryId, mode: 'jira', calendarName, ticketsTruncated, aiUnavailable, aiUnavailableReason, defaultProjectKey })
   } catch (err) {
     console.error('[/api/process] unhandled error:', err)
     if (importRunId) {

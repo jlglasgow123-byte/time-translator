@@ -121,7 +121,11 @@ function eventToSentence(event: SystemEventRow, emails: Map<string, string>): Ac
     sentence = `${user} completed an import — ${count} events, ${matched} matched${ai}`
     if (typeof d.skippedCount === 'number' && d.skippedCount > 0) sub = `${d.skippedCount} skipped`
   } else if (t === 'ai_match_skipped' || t.includes('ai_matching_skipped')) {
-    sentence = `AI matching skipped — no Jira tickets available`
+    sentence = d.reason === 'no_default_project'
+      ? `AI matching skipped — no default Jira project set`
+      : d.reason === 'no_tickets_in_default_project'
+        ? `AI matching skipped — default Jira project has no tickets`
+        : `AI matching skipped — no Jira tickets available`
     sub = user
   } else if (t === 'ai_parse_failed') {
     const batch = typeof d.batchSize === 'number' ? `batch of ${d.batchSize}` : ''
