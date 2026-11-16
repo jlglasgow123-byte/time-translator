@@ -322,6 +322,31 @@ export async function searchIssues(
     })
   }
 
+  // Modern `/search/jql` first: Atlassian retired the old `/search` endpoint on Cloud
+  // (it now returns 410), which silently emptied this leg and left only the picker —
+  // and the picker without `currentJQL` only matches the user's recently viewed issues.
+  // Legacy kept as a fallback for older/self-hosted instances, mirroring fetchOpenTickets.
+  const runTextSearch = async (): Promise<{ issues?: Record<string, unknown>[] }> => {
+    if (!jqlQuery) return { issues: [] }
+    const body = JSON.stringify({ jql: jqlQuery, maxResults: 10, fields: ['summary', 'status', 'issuetype'] })
+    let lastStatus: number | undefined
+    for (const path of ['/rest/api/3/search/jql', '/rest/api/3/search']) {
+      try {
+        const r = await fetch(`${base(creds)}${path}`, { method: 'POST', headers: makeHeaders(creds), body })
+        // Await so a malformed 200 body (e.g. an SSO/proxy HTML page) lands in the
+        // catch below and degrades this leg to empty, rather than failing the whole search.
+        if (r.ok) return await r.json()
+        lastStatus = r.status
+        // Auth or bad-query errors won't be fixed by the other endpoint.
+        if (r.status === 400 || r.status === 401 || r.status === 403) break
+      } catch {
+        lastStatus = undefined
+      }
+    }
+    reportSearchFailure('jql', lastStatus)
+    return { issues: [] }
+  }
+
   const [pickerData, jqlResults] = await Promise.all([
     fetch(pickerUrl, { headers: makeHeaders(creds) })
       .then(r => {
@@ -329,32 +354,21 @@ export async function searchIssues(
         return r.json()
       })
       .catch(() => { reportSearchFailure('picker'); return { sections: [] } }),
-    jqlQuery
-      ? fetch(`${base(creds)}/rest/api/3/search`, {
-          method: 'POST',
-          headers: makeHeaders(creds),
-          body: JSON.stringify({ jql: jqlQuery, maxResults: 10, fields: ['summary', 'status', 'issuetype'] }),
-        })
-          .then(r => {
-            if (!r.ok) { reportSearchFailure('jql', r.status); return { issues: [] } }
-            return r.json()
-          })
-          .catch(() => { reportSearchFailure('jql'); return { issues: [] } })
-      : Promise.resolve({ issues: [] }),
+    runTextSearch(),
   ])
 
   const seen = new Set<string>()
   const tickets: JiraTicket[] = []
 
   // Default project JQL results first
-  for (const issue of jqlResults.issues ?? []) {
-    if (seen.has(issue.key)) continue
-    seen.add(issue.key)
+  for (const ticket of parseIssues(jqlResults.issues ?? [])) {
+    if (seen.has(ticket.key)) continue
+    seen.add(ticket.key)
     tickets.push({
-      key: issue.key,
-      summary: issue.fields?.summary ?? '',
-      status: issue.fields?.status?.name ?? '',
-      issueType: issue.fields?.issuetype?.name ?? '',
+      key: ticket.key,
+      summary: ticket.summary,
+      status: ticket.status,
+      issueType: ticket.issueType,
     })
   }
 

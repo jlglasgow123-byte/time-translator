@@ -31,6 +31,12 @@ function MetaIcon({ title, isDuplicate }: { title: string; isDuplicate: boolean 
   )
 }
 
+// Shown in place of the Jira key box on rows that won't be logged. The key itself
+// is kept in the data, so switching the row back to Log restores it.
+function SkipLabel() {
+  return <span className="inline-block w-40 px-2 py-1 text-sm text-[#6E6E6E]">Skip</span>
+}
+
 function StatusBadge({ entry, jiraMatch }: { entry: WorkEntry; jiraMatch: JiraMatch }) {
   if (entry.autoSkipped) {
     if (entry.autoSkipSource === 'duplicate') {
@@ -101,14 +107,18 @@ export function ReviewRow({ entry, jiraMatch, defaultProjectKey, onJiraKeyChange
                 {entry.calendarEventTitle}
               </p>
               <div className="flex items-center gap-2 flex-wrap">
-                <JiraKeyInput
-                  value={jiraMatch.suggestedJiraKey}
-                  disabled={isSkip}
-                  defaultProjectKey={defaultProjectKey}
-                  onChange={key => onJiraKeyChange(entry.id, key)}
-                  onBlur={key => onJiraKeyBlur(entry.id, key)}
-                  onSelect={(key, summary) => onJiraSelect(entry.id, key, summary)}
-                />
+                {isSkip ? (
+                  <SkipLabel />
+                ) : (
+                  <JiraKeyInput
+                    value={jiraMatch.suggestedJiraKey}
+                    disabled={isSkip}
+                    defaultProjectKey={defaultProjectKey}
+                    onChange={key => onJiraKeyChange(entry.id, key)}
+                    onBlur={key => onJiraKeyBlur(entry.id, key)}
+                    onSelect={(key, summary) => onJiraSelect(entry.id, key, summary)}
+                  />
+                )}
                 {jiraMatch.jiraTaskDescription && (
                   <span className={`text-xs truncate max-w-[180px] ${cellText}`} title={jiraMatch.jiraTaskDescription}>
                     {jiraMatch.jiraTaskDescription}
@@ -138,13 +148,18 @@ export function ReviewRow({ entry, jiraMatch, defaultProjectKey, onJiraKeyChange
           <div className="break-words">{entry.calendarEventTitle}</div>
         </td>
         <td className="px-3 py-2 whitespace-nowrap">
-          <JiraKeyInput
-            value={jiraMatch.suggestedJiraKey}
-            disabled={isSkip}
-            onChange={key => onJiraKeyChange(entry.id, key)}
-            onBlur={key => onJiraKeyBlur(entry.id, key)}
-            onSelect={(key, summary) => onJiraSelect(entry.id, key, summary)}
-          />
+          {isSkip ? (
+            <SkipLabel />
+          ) : (
+            <JiraKeyInput
+              value={jiraMatch.suggestedJiraKey}
+              disabled={isSkip}
+              defaultProjectKey={defaultProjectKey}
+              onChange={key => onJiraKeyChange(entry.id, key)}
+              onBlur={key => onJiraKeyBlur(entry.id, key)}
+              onSelect={(key, summary) => onJiraSelect(entry.id, key, summary)}
+            />
+          )}
         </td>
         <td className={`px-3 py-2 text-sm ${cellText}`}>
           <div className="flex items-start gap-1.5">
