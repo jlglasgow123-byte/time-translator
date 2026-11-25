@@ -43,8 +43,8 @@ function buildEvent(
   const endUtc = DateTime.fromJSDate(instanceEnd, { zone: 'UTC' }).toISO() ?? ''
   const startLocal = utcToLocal(startUtc, timezone)
   const endLocal = utcToLocal(endUtc, timezone)
-  const startDt = DateTime.fromISO(startLocal)
-  const endDt = DateTime.fromISO(endLocal)
+  const startDt = DateTime.fromISO(startLocal, { setZone: true })
+  const endDt = DateTime.fromISO(endLocal, { setZone: true })
 
   if (startDt < rangeStart || startDt > rangeEnd) {
     console.log('[ics-parser] DROP out-of-range', {

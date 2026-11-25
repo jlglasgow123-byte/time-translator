@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { WorkEntry, LogResult, JiraMatchesByWorkEntryId } from '@/types'
-import { loadSession, clearSession, recordLearnedCorrection } from '@/lib/storage'
+import { loadSession, clearSession, recordLearnedCorrection, loadFormConfig } from '@/lib/storage'
 import { toUserMessage } from '@/lib/errors'
 import { Button } from '@/components/ui/Button'
 import { ConfidenceBadge } from '@/components/ui/Badge'
@@ -49,6 +49,9 @@ export default function ConfirmPage() {
 
   async function handleLogAll() {
     setPhase('logging')
+    // Times on each entry are the user's wall-clock times; send the timezone they were
+    // imported in so the server doesn't read them as UTC.
+    const timezone = loadFormConfig()?.timezone || 'Australia/Sydney'
     for (const entry of toLog) {
       const jiraMatch = jiraMatchesByWorkEntryId[entry.id]
       try {
@@ -58,6 +61,7 @@ export default function ConfirmPage() {
           body: JSON.stringify({
             issueKey: jiraMatch?.suggestedJiraKey ?? '',
             startedAt: entry.date + 'T' + entry.startTime + ':00',
+            timezone,
             durationSeconds: entry.durationSeconds,
             comment: entry.calendarEventTitle,
             jiraSummary: jiraMatch?.jiraTaskDescription ?? '',

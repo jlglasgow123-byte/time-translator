@@ -11,6 +11,7 @@ export interface JiraCredentials {
 interface WorklogPayload {
   issueKey: string
   startedAt: string   // ISO local
+  timezone?: string   // user's timezone, used when startedAt has no offset
   durationSeconds: number
   comment?: string
 }
@@ -279,7 +280,7 @@ export async function logWorklog(
   const url = `${base(creds)}/rest/api/3/issue/${payload.issueKey}/worklog`
 
   const body = {
-    started: toJiraStarted(payload.startedAt),
+    started: toJiraStarted(payload.startedAt, payload.timezone),
     timeSpentSeconds: payload.durationSeconds,
     ...(payload.comment ? {
       comment: {

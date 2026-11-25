@@ -14,13 +14,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { issueKey, startedAt, durationSeconds, comment, jiraSummary, startTime } = body
+    const { issueKey, startedAt, durationSeconds, comment, jiraSummary, startTime, timezone } = body
 
     if (!issueKey || !startedAt || !durationSeconds) {
       return NextResponse.json({ error: 'issueKey, startedAt, and durationSeconds are required' }, { status: 400 })
     }
 
-    const result = await logWorklog(creds, { issueKey, startedAt, durationSeconds, comment })
+    const result = await logWorklog(creds, {
+      issueKey, startedAt, durationSeconds, comment,
+      timezone: typeof timezone === 'string' ? timezone : undefined,
+    })
 
     captureAppEvent('Jira worklog created', 'info', {
       eventType: 'jira_log_succeeded',

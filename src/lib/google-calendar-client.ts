@@ -185,8 +185,8 @@ function toCalendarEvent(
   const endUtc = DateTime.fromISO(event.end.dateTime, { setZone: true }).toUTC().toISO() ?? ''
   const startLocal = utcToLocal(startUtc, timezone)
   const endLocal = utcToLocal(endUtc, timezone)
-  const startDt = DateTime.fromISO(startLocal)
-  const endDt = DateTime.fromISO(endLocal)
+  const startDt = DateTime.fromISO(startLocal, { setZone: true })
+  const endDt = DateTime.fromISO(endLocal, { setZone: true })
 
   if (startDt < rangeStart || startDt > rangeEnd) return null
   if (excludeWeekends && (startDt.weekday === 6 || startDt.weekday === 7)) return null
